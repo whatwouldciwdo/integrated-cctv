@@ -39,7 +39,9 @@ async function mediaRequest(method, route, payload, accepted = [200]) {
 
 export async function upsertMediaPath(streamPath, source) {
   streamPath = validateStreamPath(streamPath)
-  const payload = { source: validateRtspSource(source), sourceOnDemand: true }
+  // Docker/NAT dan jaringan CCTV sering kehilangan fragmen RTP UDP berukuran besar.
+  // Interleaved RTSP-over-TCP menjaga urutan paket dan mencegah invalid FU-A frames.
+  const payload = { source: validateRtspSource(source), sourceOnDemand: true, rtspTransport: 'tcp' }
   const routeName = encodeURIComponent(streamPath)
   const patched = await mediaRequest('PATCH', `/v3/config/paths/patch/${routeName}`, payload, [200, 404])
   if (patched.status === 404) await mediaRequest('POST', `/v3/config/paths/add/${routeName}`, payload)
