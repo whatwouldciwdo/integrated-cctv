@@ -54,14 +54,22 @@ Buka `http://localhost:8080`.
 
 ## Deployment server dengan Docker
 
-1. Siapkan Ubuntu Server dengan Docker Engine dan plugin Docker Compose.
-2. Salin project ke server, lalu salin `.env.example` menjadi `.env`. Untuk akses HTTP biasa di jaringan kantor, biarkan `SECURE_COOKIES=false`; jika sudah memakai HTTPS, ubah menjadi `true`.
+Server Ubuntu aplikasi menggunakan IP **`10.8.140.67`**, sedangkan PostgreSQL tetap berada di **`10.8.140.69`**.
+
+Panduan lengkap untuk instalasi Docker, clone/pull source code, konfigurasi `.env`, firewall, menjalankan service, dan proses update berikutnya tersedia di **[Panduan Deployment Ubuntu](deploy/ubuntu-server.md)**.
+
+Ringkasan deployment:
+
+1. Siapkan Ubuntu Server `10.8.140.67` dengan Docker Engine dan plugin Docker Compose.
+2. Clone project ke server, lalu salin `.env.example` menjadi `.env`. Untuk akses HTTP biasa di jaringan kantor, biarkan `SECURE_COOKIES=false`; jika sudah memakai HTTPS, ubah menjadi `true`.
 3. Isi koneksi PostgreSQL, password admin yang kuat, dan IP LAN server:
 
 ```env
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=ganti-dengan-password-panjang
-SERVER_LAN_IP=192.168.10.5
+APP_ORIGIN=http://10.8.140.67:8080
+SERVER_LAN_IP=10.8.140.67
+MEDIAMTX_WEBRTC_BASE=http://10.8.140.67:8889
 DATABASE_URL=postgresql://sentra_cctv_app:password@10.8.140.69:5432/sentra_cctv
 DATABASE_SSL=false
 ```
@@ -75,7 +83,7 @@ docker compose ps
 curl http://localhost:8080/api/health
 ```
 
-6. Jika health check menghasilkan `{"ok":true,"database":"connected"}`, buka `http://IP-SERVER:8080` dari Mini PC client.
+6. Jika health check menghasilkan `{"ok":true,"database":"connected"}`, buka `http://10.8.140.67:8080` dari Mini PC client.
 
 Database dan tabel dibuat otomatis ketika dashboard pertama kali berjalan. Jangan commit `.env` karena berisi password database dan admin.
 
