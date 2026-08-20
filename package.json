@@ -1,0 +1,21 @@
+{
+  "name": "integrated-cctv",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"node --watch server/index.js\" \"vite\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "latest",
+    "concurrently": "latest",
+    "pg": "^8.23.0",
+    "vite": "latest",
+    "vue": "latest"
+  }
+}
