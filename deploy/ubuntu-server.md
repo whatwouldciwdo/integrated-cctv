@@ -78,6 +78,7 @@ DATABASE_SSL=false
 SESSION_TTL_HOURS=12
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=GANTI_DENGAN_PASSWORD_ADMIN_YANG_PANJANG_DAN_UNIK
+RTSP_ENCRYPTION_KEY=GANTI_DENGAN_KUNCI_32_BYTE_BASE64
 SECURE_COOKIES=false
 SERVER_LAN_IP=10.8.140.67
 MEDIAMTX_WEBRTC_BASE=http://10.8.140.67:8889
@@ -86,6 +87,7 @@ MEDIAMTX_WEBRTC_BASE=http://10.8.140.67:8889
 Catatan:
 
 - Ganti kedua placeholder password sebelum aplikasi dijalankan.
+- Buat `RTSP_ENCRYPTION_KEY` satu kali dengan `openssl rand -base64 32`. Simpan salinannya di password manager/secret manager dan jangan menggantinya setelah kamera tersimpan; kehilangan key membuat RTSP Source URL lama tidak dapat didekripsi.
 - Jika password database mengandung karakter khusus URL seperti `@`, `:`, `/`, `?`, atau `#`, lakukan URL encoding pada password tersebut.
 - Gunakan `SECURE_COOKIES=true` hanya setelah dashboard dilayani melalui HTTPS.
 - Batasi permission file environment dengan `chmod 600 .env`.
@@ -101,6 +103,10 @@ timeout 5 bash -c '</dev/tcp/10.8.140.69/5432' \
 Jika gagal, periksa routing/firewall dan pastikan PostgreSQL mengizinkan koneksi dari `10.8.140.67` pada `postgresql.conf`/`pg_hba.conf`.
 
 ## 6. Konfigurasi stream kamera
+
+Untuk instalasi baru, jalankan service pada langkah 8 lalu tambahkan kamera melalui menu **Management**. Isi **Stream path** dan **RTSP Source URL**; backend mengenkripsi URL di PostgreSQL dan mengirim konfigurasi path ke Control API MediaMTX melalui network Docker internal. Credential tidak dikembalikan ke browser.
+
+`deploy/mediamtx.yml` masih dapat dipakai untuk path statis lama. Edit file hanya bila memang menggunakan mode tersebut:
 
 Edit konfigurasi MediaMTX:
 
@@ -121,11 +127,13 @@ Nama path (`lobby-barat`) harus sama dengan **Stream path** yang dimasukkan mela
 
 > `deploy/mediamtx.yml` dapat berisi credential kamera. Batasi akses dengan `chmod 600 deploy/mediamtx.yml` dan jangan push credential asli ke GitHub.
 
-Konfigurasi ini disalin ke image MediaMTX ketika image dibangun. Pendekatan tersebut sengaja tidak memakai bind mount host sehingga tetap kompatibel ketika Docker tidak diizinkan me-mount direktori `/opt`. Setiap kali file diubah, build ulang MediaMTX:
+Konfigurasi statis ini disalin ke image MediaMTX ketika image dibangun. Pendekatan tersebut sengaja tidak memakai bind mount host sehingga tetap kompatibel ketika Docker tidak diizinkan me-mount direktori `/opt`. Setiap kali file statis diubah, build ulang MediaMTX:
 
 ```bash
 docker compose up -d --build mediamtx
 ```
+
+Kamera yang dikelola dashboard tidak memerlukan edit file atau rebuild. Dashboard menyinkronkan kembali seluruh path terenkripsi dari PostgreSQL setiap kali service dimulai.
 
 ## 7. Konfigurasi firewall Ubuntu
 
@@ -193,7 +201,7 @@ cd /opt/sentra-cctv
 git status --short
 ```
 
-File `.env` aman karena diabaikan Git. Jika `deploy/mediamtx.yml` telah diedit langsung dan muncul sebagai modified, backup lalu pulihkan versi Git sebelum melakukan pull agar tidak terjadi konflik:
+File `.env` aman karena diabaikan Git. Jika `deploy/mediamtx.yml` telah diedit langsung dan muncul sebagai modified, selalu backup lalu pulihkan versi Git sebelum melakukan pull agar tidak terjadi konflik:
 
 ```bash
 cp deploy/mediamtx.yml "$HOME/mediamtx.yml.backup"
@@ -206,11 +214,13 @@ Ambil update branch `main` tanpa membuat merge commit otomatis:
 git pull --ff-only origin main
 ```
 
-Kembalikan konfigurasi MediaMTX lokal setelah pull:
+Jika backup hanya berisi path statis yang tetap ingin dikelola lewat YAML, kembalikan konfigurasi MediaMTX lokal setelah pull:
 
 ```bash
 cp "$HOME/mediamtx.yml.backup" deploy/mediamtx.yml
 ```
+
+Jika backup berisi path `wisenet-*` yang akan dipindahkan ke PostgreSQL, **jangan** jalankan perintah `cp` tersebut. Ikuti prosedur migrasi satu kali di bawah agar credential plaintext tidak dimasukkan kembali ke image.
 
 Build ulang dan verifikasi:
 
@@ -225,6 +235,36 @@ Bersihkan image Docker lama secara berkala setelah memastikan versi baru berjala
 ```bash
 docker image prune -f
 ```
+
+### Migrasi satu kali path Wisenet dari YAML ke PostgreSQL
+
+Gunakan prosedur ini ketika memperbarui instalasi lama yang masih menyimpan path `wisenet-*` di `deploy/mediamtx.yml`. Backup **harus dibuat sebelum** `git restore`/`git pull`:
+
+```bash
+cd /opt/sentra-cctv
+cp deploy/mediamtx.yml "$HOME/mediamtx-before-db-migration.yml"
+
+# Tambahkan RTSP_ENCRYPTION_KEY ke .env sebelum menjalankan versi baru.
+openssl rand -base64 32
+nano .env
+
+git restore deploy/mediamtx.yml
+git pull --ff-only origin main
+docker compose up -d --build
+
+# Import hanya path berprefix wisenet- dari backup, lalu sinkronkan ke MediaMTX.
+docker compose exec -T dashboard npm run import:wisenet \
+  < "$HOME/mediamtx-before-db-migration.yml"
+```
+
+Importer menerima format YAML block maupun inline, mengenkripsi setiap RTSP Source URL, dan bersifat idempotent berdasarkan `stream_path`. Verifikasi tanpa menampilkan credential:
+
+```bash
+docker compose logs --tail=100 dashboard
+curl --fail http://localhost:8080/api/health
+```
+
+Login sebagai Administrator, buka **Management**, pastikan semua kamera Wisenet berstatus **RTSP tersimpan**, lalu uji playback beberapa kamera. Simpan backup YAML lama secara aman sampai seluruh stream terverifikasi; file tersebut mengandung credential plaintext.
 
 ## 11. Perintah operasional
 

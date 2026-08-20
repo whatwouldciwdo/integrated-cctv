@@ -7,6 +7,8 @@ export const config = {
   adminUsername: process.env.ADMIN_USERNAME || 'admin',
   adminPassword: process.env.ADMIN_PASSWORD || 'ChangeMe123!',
   mediaBase: (process.env.MEDIAMTX_WEBRTC_BASE || 'http://localhost:8889').replace(/\/$/, ''),
+  mediaApiBase: (process.env.MEDIAMTX_API_BASE || 'http://localhost:9997').replace(/\/$/, ''),
+  rtspEncryptionKey: process.env.RTSP_ENCRYPTION_KEY || '',
   production: process.env.NODE_ENV === 'production',
   secureCookies: process.env.SECURE_COOKIES === 'true',
 }

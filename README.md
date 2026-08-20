@@ -13,7 +13,7 @@ Camera/NVR RTSP (H.264 substream)
              Vue dashboard + Node API + PostgreSQL
 ```
 
-Backend **tidak menyimpan RTSP URL atau password kamera di browser**. RTSP URL hanya ditulis di `deploy/mediamtx.yml`; database dashboard hanya menyimpan nama `stream_path`.
+Backend **tidak pernah mengirim RTSP URL atau password kamera ke browser**. Kamera yang dibuat atau diedit dari dashboard menyimpan RTSP Source URL dalam bentuk terenkripsi AES-256-GCM di PostgreSQL. Kunci enkripsi hanya berada di environment server, sedangkan MediaMTX menerima konfigurasi path melalui Control API pada network Docker internal.
 
 ## Fitur MVP
 
@@ -22,6 +22,7 @@ Backend **tidak menyimpan RTSP URL atau password kamera di browser**. RTSP URL h
 - Role bawaan: Administrator, Supervisor, Viewer
 - Pembagian kamera many-to-many berdasarkan role
 - Management user dan kamera
+- Management RTSP Source URL kamera langsung dari dashboard tanpa edit YAML/rebuild
 - Live grid 1, 4, 9, 16; pencarian dan pagination
 - Audit log login serta perubahan data penting
 - PostgreSQL terpusat untuk user, kamera, audit, sesi, dan indeks rekaman
@@ -62,11 +63,12 @@ Ringkasan deployment:
 
 1. Siapkan Ubuntu Server `10.8.140.67` dengan Docker Engine dan plugin Docker Compose.
 2. Clone project ke server, lalu salin `.env.example` menjadi `.env`. Untuk akses HTTP biasa di jaringan kantor, biarkan `SECURE_COOKIES=false`; jika sudah memakai HTTPS, ubah menjadi `true`.
-3. Isi koneksi PostgreSQL, password admin yang kuat, dan IP LAN server:
+3. Buat kunci enkripsi satu kali dengan `openssl rand -base64 32`, lalu isi koneksi PostgreSQL, password admin yang kuat, IP LAN server, dan kunci tersebut:
 
 ```env
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=ganti-dengan-password-panjang
+RTSP_ENCRYPTION_KEY=hasil-openssl-rand-base64-32
 APP_ORIGIN=http://10.8.140.67:8080
 SERVER_LAN_IP=10.8.140.67
 MEDIAMTX_WEBRTC_BASE=http://10.8.140.67:8889
@@ -74,7 +76,7 @@ DATABASE_URL=postgresql://sentra_cctv_app:password@10.8.140.69:5432/sentra_cctv
 DATABASE_SSL=false
 ```
 
-4. Edit `deploy/mediamtx.yml`, lalu isi RTSP substream masing-masing kamera/NVR.
+4. Untuk instalasi baru, tambahkan kamera dari menu **Management** dan isi RTSP Source URL. Path statis di `deploy/mediamtx.yml` tetap didukung untuk kamera lama yang belum dimigrasikan.
 5. Jalankan:
 
 ```bash
@@ -83,7 +85,7 @@ docker compose ps
 curl http://localhost:8080/api/health
 ```
 
-Konfigurasi MediaMTX disalin ke image saat proses build, bukan di-bind mount dari host. Karena itu jalankan kembali `docker compose up -d --build mediamtx` setiap kali `deploy/mediamtx.yml` diubah.
+Konfigurasi dasar MediaMTX disalin ke image saat proses build, bukan di-bind mount dari host. Kamera yang dikelola dashboard tidak memerlukan rebuild MediaMTX; konfigurasi aktif dipulihkan otomatis dari PostgreSQL ketika dashboard restart.
 
 6. Jika health check menghasilkan `{"ok":true,"database":"connected"}`, buka `http://10.8.140.67:8080` dari Mini PC client.
 
@@ -91,29 +93,27 @@ Database dan tabel dibuat otomatis ketika dashboard pertama kali berjalan. Janga
 
 ## Menambahkan kamera
 
-Misalnya konfigurasi MediaMTX:
+Di menu **Management → Tambah kamera**, isi nama, lokasi, brand, stream path, dan RTSP Source URL. Contoh:
 
-```yaml
-paths:
-  lobby-barat:
-    source: rtsp://viewer:password@192.168.10.30:554/substream
-    sourceOnDemand: true
+```text
+Stream path: lobby-barat
+RTSP Source URL: rtsp://viewer:password@192.168.10.30:554/substream
 ```
+
+RTSP Source URL dienkripsi sebelum disimpan. Sesudah tersimpan, UI hanya menampilkan status **Tersimpan** dan tidak mengembalikan credential ke browser. Biarkan field RTSP kosong ketika mengedit metadata jika URL lama tidak ingin diubah.
 
 Contoh Wisenet/Hanwha yang mengizinkan RTSP tanpa autentikasi:
 
-```yaml
-paths:
-  wisenet-01:
-    source: rtsp://192.168.141.111:554/profile2/media.smp
-    sourceOnDemand: true
+```text
+Stream path: wisenet-01
+RTSP Source URL: rtsp://192.168.141.111:554/profile2/media.smp
 ```
 
 Untuk Wisenet yang masih meminta login, gunakan format
 `rtsp://username:password@192.168.141.111:554/profile2/media.smp`. Profile 2 biasanya
 merupakan substream dan lebih sesuai untuk grid dashboard.
 
-Di menu **Management → Tambah kamera**, isi **Stream path** dengan `lobby-barat`. Jangan masukkan RTSP URL atau password ke form dashboard.
+`RTSP_ENCRYPTION_KEY` wajib berupa 32 byte base64 dan harus dibackup di password manager/secret manager. Jangan mengganti atau kehilangan key setelah data kamera tersimpan karena RTSP Source URL lama tidak akan dapat didekripsi.
 
 Jika kamera hanya menyediakan H.265, ubah substream kamera menjadi H.264. Dukungan H.265 di browser/WebRTC tidak merata dan dapat memerlukan transcoding yang berat.
 
@@ -151,11 +151,11 @@ Backup PostgreSQL secara terjadwal menggunakan `pg_dump`, dan backup media rekam
 pg_dump --format=custom --dbname="$DATABASE_URL" --file="sentra_cctv_$(date +%F).dump"
 ```
 
-File `deploy/mediamtx.yml` mengandung credential kamera dan harus dibatasi hak aksesnya serta tidak dibagikan.
+File `deploy/mediamtx.yml` dapat mengandung credential kamera statis yang belum dimigrasikan dan harus dibatasi hak aksesnya serta tidak dibagikan. File `.env` dan backup-nya juga sensitif karena mengandung `RTSP_ENCRYPTION_KEY`.
 
 ## Batasan MVP dan tahap berikutnya
 
 - Belum ada CRUD role/bidang dari UI; role bawaan dan bidang Keamanan dibuat saat seed.
-- Belum ada proxy otorisasi per request di depan MediaMTX. Karena targetnya LAN internal, URL player hanya diberikan setelah API memvalidasi role, tetapi user yang mengetahui URL MediaMTX dapat membukanya langsung. Untuk keamanan lebih ketat, tahap berikutnya perlu MediaMTX HTTP authentication/JWT atau reverse proxy berotorisasi.
+- Belum ada proxy otorisasi per request di depan MediaMTX. Karena targetnya LAN internal, URL player hanya diberikan setelah API memvalidasi role, tetapi user yang mengetahui URL MediaMTX dapat membukanya langsung. Control API tidak dipublish ke host dan hanya digunakan dashboard melalui network Docker internal. Untuk keamanan playback lebih ketat, tahap berikutnya perlu MediaMTX HTTP authentication/JWT atau reverse proxy berotorisasi.
 - Status online/offline masih mengikuti respons player MediaMTX, belum ada ONVIF health polling.
 - API/UI playback dan proses perekaman belum diimplementasikan; tabel metadata `recordings` sudah disiapkan sebagai fondasi tahap berikutnya.

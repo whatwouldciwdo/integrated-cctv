@@ -50,8 +50,10 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS cameras (
   id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, location TEXT NOT NULL DEFAULT '', brand TEXT NOT NULL DEFAULT '',
   stream_path TEXT NOT NULL UNIQUE, department_id BIGINT REFERENCES departments(id),
-  enabled BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  enabled BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  rtsp_source_encrypted TEXT
 );
+ALTER TABLE cameras ADD COLUMN IF NOT EXISTS rtsp_source_encrypted TEXT;
 CREATE TABLE IF NOT EXISTS role_cameras (
   role_id BIGINT NOT NULL, camera_id BIGINT NOT NULL,
   PRIMARY KEY(role_id, camera_id),

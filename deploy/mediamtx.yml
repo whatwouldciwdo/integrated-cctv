@@ -4,6 +4,14 @@ rtspAddress: :8554
 webrtc: true
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
+api: true
+apiAddress: :9997
+authInternalUsers:
+  # Control API hanya tersedia di network Docker internal (port 9997 tidak dipublish).
+  - user: any
+    permissions:
+      - action: playback
+      - action: api
 
 # Ganti IP, username, password, dan path sesuai kamera/NVR.
 # Nama path harus sama dengan "Stream path" di dashboard.
@@ -15,35 +23,5 @@ paths:
   parkir-depan:
     source: rtsp://viewer:CHANGE_ME@192.168.10.22:554/Streaming/Channels/102
     sourceOnDemand: true
-  wisenet-01: { source: rtsp://192.168.141.111:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-02: { source: rtsp://192.168.141.112:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-03: { source: rtsp://192.168.141.113:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-04: { source: rtsp://192.168.141.114:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-05: { source: rtsp://admin:CHANGE_ME@192.168.141.115:554/Streaming/Channels/102, sourceOnDemand: true }
-  wisenet-06: { source: rtsp://192.168.141.116:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-07: { source: rtsp://192.168.141.117:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-08: { source: rtsp://192.168.141.118:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-09: { source: rtsp://192.168.141.119:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-10: { source: rtsp://192.168.141.121:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-13: { source: rtsp://192.168.141.124:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-14: { source: rtsp://192.168.141.125:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-15: { source: rtsp://192.168.141.126:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-16: { source: rtsp://192.168.141.127:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-17: { source: rtsp://192.168.141.128:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-18: { source: rtsp://192.168.141.129:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-19: { source: rtsp://192.168.141.131:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-20: { source: rtsp://192.168.141.132:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-21: { source: rtsp://192.168.141.133:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-22: { source: rtsp://192.168.141.134:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-23: { source: rtsp://192.168.141.135:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-24: { source: rtsp://192.168.141.136:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-25: { source: rtsp://192.168.141.137:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-26: { source: rtsp://192.168.141.138:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-27: { source: rtsp://192.168.141.139:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-28: { source: rtsp://192.168.141.141:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-29: { source: rtsp://192.168.141.142:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-30: { source: rtsp://192.168.141.143:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-31: { source: rtsp://192.168.141.144:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-32: { source: rtsp://192.168.141.145:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-33: { source: rtsp://192.168.141.146:554/profile2/media.smp, sourceOnDemand: true }
-  wisenet-34: { source: rtsp://192.168.141.147:554/profile2/media.smp, sourceOnDemand: true }
+
+  # Path Wisenet dikelola dashboard dari PostgreSQL melalui Control API internal.

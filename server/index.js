@@ -3,7 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { audit, initializeDatabase, one, query, transaction } from './db.js'
 import { config } from './config.js'
-import { hashPassword, newSessionToken, tokenDigest, verifyPassword } from './security.js'
+import { deleteMediaPath, scheduleMediaPathSynchronization, upsertMediaPath, validateRtspSource, validateStreamPath } from './mediamtx.js'
+import { decryptSecret, encryptSecret, hashPassword, newSessionToken, tokenDigest, verifyPassword } from './security.js'
 
 const json = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -36,6 +37,13 @@ async function currentUser(req) {
 
 const clean = value => String(value || '').trim()
 const routeId = (pathname, resource) => pathname.match(new RegExp(`^/api/${resource}/(\\d+)$`))?.[1]
+const cameraFields = `c.id,c.name,c.location,c.brand,c.stream_path,c.department_id,c.enabled,c.created_at,
+  (c.rtsp_source_encrypted IS NOT NULL) rtsp_configured,d.name department`
+
+function rtspInput(value) {
+  const source = clean(value)
+  return source ? validateRtspSource(source) : ''
+}
 
 async function api(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/health') {
@@ -65,8 +73,8 @@ async function api(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, user)
 
   if (req.method === 'GET' && url.pathname === '/api/cameras') {
-    const sql = user.can_view_all ? `SELECT c.*, d.name department FROM cameras c LEFT JOIN departments d ON d.id=c.department_id WHERE c.enabled=TRUE ORDER BY c.name`
-      : `SELECT DISTINCT c.*, d.name department FROM cameras c JOIN role_cameras rc ON rc.camera_id=c.id LEFT JOIN departments d ON d.id=c.department_id WHERE c.enabled=TRUE AND rc.role_id=$1 ORDER BY c.name`
+    const sql = user.can_view_all ? `SELECT ${cameraFields} FROM cameras c LEFT JOIN departments d ON d.id=c.department_id WHERE c.enabled=TRUE ORDER BY c.name`
+      : `SELECT DISTINCT ${cameraFields} FROM cameras c JOIN role_cameras rc ON rc.camera_id=c.id LEFT JOIN departments d ON d.id=c.department_id WHERE c.enabled=TRUE AND rc.role_id=$1 ORDER BY c.name`
     const { rows } = await query(sql, user.can_view_all ? [] : [user.role_id])
     return json(res, 200, rows.map(c => ({ ...c, player_url: `${config.mediaBase}/${encodeURIComponent(c.stream_path)}/` })))
   }
@@ -74,7 +82,7 @@ async function api(req, res, url) {
     if (!user.can_manage_users && !user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
     const [departments, roles, cameras, users] = await Promise.all([
       query('SELECT * FROM departments ORDER BY name'), query('SELECT * FROM roles ORDER BY name'),
-      query('SELECT c.*, d.name department FROM cameras c LEFT JOIN departments d ON d.id=c.department_id ORDER BY c.name'),
+      query(`SELECT ${cameraFields} FROM cameras c LEFT JOIN departments d ON d.id=c.department_id ORDER BY c.name`),
       query(`SELECT u.id,u.username,u.full_name,u.active,u.role_id,u.department_id,r.name role,d.name department FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN departments d ON d.id=u.department_id ORDER BY u.username`),
     ])
     return json(res, 200, { departments: departments.rows, roles: roles.rows, cameras: cameras.rows, users: users.rows })
@@ -82,21 +90,49 @@ async function api(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/admin/cameras') {
     if (!user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
     const v = await body(req); if (!clean(v.name) || !clean(v.stream_path)) return json(res, 400, { error: 'Nama dan stream path wajib diisi' })
-    const result = await one('INSERT INTO cameras(name,location,brand,stream_path,department_id) VALUES($1,$2,$3,$4,$5) RETURNING id', [clean(v.name), clean(v.location), clean(v.brand), clean(v.stream_path), v.department_id || null])
+    const streamPath = validateStreamPath(v.stream_path)
+    const source = rtspInput(v.rtsp_source)
+    const result = await transaction(async client => {
+      const inserted = await client.query(`INSERT INTO cameras(name,location,brand,stream_path,department_id,rtsp_source_encrypted)
+        VALUES($1,$2,$3,$4,$5,$6) RETURNING id`, [clean(v.name), clean(v.location), clean(v.brand), streamPath, v.department_id || null, source ? encryptSecret(source, config.rtspEncryptionKey) : null])
+      if (source) await upsertMediaPath(streamPath, source)
+      return inserted.rows[0]
+    })
     await audit(user.id, 'CAMERA_CREATED', String(result.id)); return json(res, 201, { id: Number(result.id) })
   }
   if (req.method === 'PUT' && routeId(url.pathname, 'admin/cameras')) {
     if (!user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
     const id = Number(routeId(url.pathname, 'admin/cameras')); const v = await body(req)
     if (!clean(v.name) || !clean(v.stream_path)) return json(res, 400, { error: 'Nama dan stream path wajib diisi' })
-    const result = await one(`UPDATE cameras SET name=$1,location=$2,brand=$3,stream_path=$4,department_id=$5
-      WHERE id=$6 RETURNING id`, [clean(v.name), clean(v.location), clean(v.brand), clean(v.stream_path), v.department_id || null, id])
+    const submittedSource = rtspInput(v.rtsp_source)
+    const nextPath = validateStreamPath(v.stream_path)
+    const result = await transaction(async client => {
+      const currentResult = await client.query('SELECT stream_path,rtsp_source_encrypted FROM cameras WHERE id=$1 FOR UPDATE', [id])
+      const current = currentResult.rows[0]
+      if (!current) return null
+      const source = submittedSource || (current.rtsp_source_encrypted ? decryptSecret(current.rtsp_source_encrypted, config.rtspEncryptionKey) : '')
+      const updated = await client.query(`UPDATE cameras SET name=$1,location=$2,brand=$3,stream_path=$4,department_id=$5,
+        rtsp_source_encrypted=CASE WHEN $6::text IS NULL THEN rtsp_source_encrypted ELSE $6 END
+        WHERE id=$7 RETURNING id`, [clean(v.name), clean(v.location), clean(v.brand), nextPath, v.department_id || null, submittedSource ? encryptSecret(submittedSource, config.rtspEncryptionKey) : null, id])
+      if (source) await upsertMediaPath(nextPath, source)
+      if (source && current.stream_path !== nextPath) await deleteMediaPath(current.stream_path)
+      return updated.rows[0]
+    })
     if (!result) return json(res, 404, { error: 'Kamera tidak ditemukan' })
     await audit(user.id, 'CAMERA_UPDATED', String(id)); return json(res, 200, { id })
   }
   if (req.method === 'DELETE' && routeId(url.pathname, 'admin/cameras')) {
     if (!user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
-    const id = Number(routeId(url.pathname, 'admin/cameras')); await query('DELETE FROM cameras WHERE id=$1', [id]); await audit(user.id, 'CAMERA_DELETED', String(id)); return json(res, 200, { ok: true })
+    const id = Number(routeId(url.pathname, 'admin/cameras'))
+    const camera = await transaction(async client => {
+      const current = (await client.query('SELECT stream_path,rtsp_source_encrypted FROM cameras WHERE id=$1 FOR UPDATE', [id])).rows[0]
+      if (!current) return null
+      await client.query('DELETE FROM cameras WHERE id=$1', [id])
+      if (current.rtsp_source_encrypted) await deleteMediaPath(current.stream_path)
+      return current
+    })
+    if (!camera) return json(res, 404, { error: 'Kamera tidak ditemukan' })
+    await audit(user.id, 'CAMERA_DELETED', String(id)); return json(res, 200, { ok: true })
   }
   if (req.method === 'POST' && url.pathname === '/api/admin/users') {
     if (!user.can_manage_users) return json(res, 403, { error: 'Akses ditolak' })
@@ -127,6 +163,7 @@ function staticFile(req, res, pathname) {
 }
 
 await initializeDatabase()
+scheduleMediaPathSynchronization()
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
   try { if (url.pathname.startsWith('/api/')) await api(req, res, url); else staticFile(req, res, url.pathname) }
