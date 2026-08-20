@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import { config } from './config.js'
 import { initializeDatabase, one, query, transaction, db } from './db.js'
 import { synchronizeMediaPaths, validateRtspSource } from './mediamtx.js'
@@ -17,9 +16,15 @@ function wisenetPaths(yaml) {
   return rows
 }
 
+async function readStandardInput() {
+  const chunks = []
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
+  return Buffer.concat(chunks).toString('utf8')
+}
+
 try {
   if (process.stdin.isTTY) throw new Error('Kirim backup mediamtx.yml melalui stdin')
-  const input = await readFile(0, 'utf8')
+  const input = await readStandardInput()
   const cameras = wisenetPaths(input)
   if (!cameras.length) throw new Error('Tidak ada path dengan prefix wisenet- pada input')
 
