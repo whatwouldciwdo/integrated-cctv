@@ -59,7 +59,7 @@ git log -1 --oneline
 
 ## 4. Buat konfigurasi environment
 
-Salin template. File `.env` diabaikan Git dan tidak boleh di-commit karena berisi password.
+Salin template. File `.env` diabaikan Git dan Docker build context, serta tidak boleh di-commit karena berisi password.
 
 ```bash
 cd /opt/sentra-cctv
@@ -121,6 +121,12 @@ Nama path (`lobby-barat`) harus sama dengan **Stream path** yang dimasukkan mela
 
 > `deploy/mediamtx.yml` dapat berisi credential kamera. Batasi akses dengan `chmod 600 deploy/mediamtx.yml` dan jangan push credential asli ke GitHub.
 
+Konfigurasi ini disalin ke image MediaMTX ketika image dibangun. Pendekatan tersebut sengaja tidak memakai bind mount host sehingga tetap kompatibel ketika Docker tidak diizinkan me-mount direktori `/opt`. Setiap kali file diubah, build ulang MediaMTX:
+
+```bash
+docker compose up -d --build mediamtx
+```
+
 ## 7. Konfigurasi firewall Ubuntu
 
 Pastikan SSH diizinkan sebelum mengaktifkan UFW agar akses remote tidak terputus:
@@ -153,6 +159,8 @@ Lihat log jika container belum sehat atau berhenti:
 docker compose logs --tail=100 dashboard
 docker compose logs --tail=100 mediamtx
 ```
+
+Jika sebelumnya muncul error `error while creating mount source path '/opt/sentra-cctv/deploy/mediamtx.yml': ... read-only file system`, pastikan source code sudah berada pada commit terbaru lalu jalankan ulang perintah di atas. Compose versi terbaru membangun konfigurasi ke dalam image dan tidak lagi membuat bind mount tersebut.
 
 ## 9. Verifikasi deployment
 

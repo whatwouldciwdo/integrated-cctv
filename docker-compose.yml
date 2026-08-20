@@ -18,10 +18,11 @@ services:
       - mediamtx
 
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.mediamtx
+    image: sentra-cctv-mediamtx:local
     restart: unless-stopped
-    volumes:
-      - ./deploy/mediamtx.yml:/mediamtx.yml:ro
     ports:
       - "8554:8554"
       - "8889:8889"

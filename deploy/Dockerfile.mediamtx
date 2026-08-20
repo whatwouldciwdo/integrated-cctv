@@ -1,0 +1,5 @@
+FROM bluenviron/mediamtx:latest
+
+# Salin konfigurasi ke image agar deployment tidak memerlukan bind mount host.
+# Build ulang service mediamtx setiap kali deploy/mediamtx.yml berubah.
+COPY deploy/mediamtx.yml /mediamtx.yml

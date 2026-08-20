@@ -83,6 +83,8 @@ docker compose ps
 curl http://localhost:8080/api/health
 ```
 
+Konfigurasi MediaMTX disalin ke image saat proses build, bukan di-bind mount dari host. Karena itu jalankan kembali `docker compose up -d --build mediamtx` setiap kali `deploy/mediamtx.yml` diubah.
+
 6. Jika health check menghasilkan `{"ok":true,"database":"connected"}`, buka `http://10.8.140.67:8080` dari Mini PC client.
 
 Database dan tabel dibuat otomatis ketika dashboard pertama kali berjalan. Jangan commit `.env` karena berisi password database dan admin.
