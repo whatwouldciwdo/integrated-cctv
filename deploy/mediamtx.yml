@@ -10,7 +10,8 @@ authInternalUsers:
   # Control API hanya tersedia di network Docker internal (port 9997 tidak dipublish).
   - user: any
     permissions:
-      - action: playback
+      # "read" mengizinkan live view RTSP/HLS/WebRTC. "playback" hanya untuk playback server rekaman.
+      - action: read
       - action: api
 
 # Ganti IP, username, password, dan path sesuai kamera/NVR.
