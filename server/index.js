@@ -85,6 +85,15 @@ async function api(req, res, url) {
     const result = await one('INSERT INTO cameras(name,location,brand,stream_path,department_id) VALUES($1,$2,$3,$4,$5) RETURNING id', [clean(v.name), clean(v.location), clean(v.brand), clean(v.stream_path), v.department_id || null])
     await audit(user.id, 'CAMERA_CREATED', String(result.id)); return json(res, 201, { id: Number(result.id) })
   }
+  if (req.method === 'PUT' && routeId(url.pathname, 'admin/cameras')) {
+    if (!user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
+    const id = Number(routeId(url.pathname, 'admin/cameras')); const v = await body(req)
+    if (!clean(v.name) || !clean(v.stream_path)) return json(res, 400, { error: 'Nama dan stream path wajib diisi' })
+    const result = await one(`UPDATE cameras SET name=$1,location=$2,brand=$3,stream_path=$4,department_id=$5
+      WHERE id=$6 RETURNING id`, [clean(v.name), clean(v.location), clean(v.brand), clean(v.stream_path), v.department_id || null, id])
+    if (!result) return json(res, 404, { error: 'Kamera tidak ditemukan' })
+    await audit(user.id, 'CAMERA_UPDATED', String(id)); return json(res, 200, { id })
+  }
   if (req.method === 'DELETE' && routeId(url.pathname, 'admin/cameras')) {
     if (!user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
     const id = Number(routeId(url.pathname, 'admin/cameras')); await query('DELETE FROM cameras WHERE id=$1', [id]); await audit(user.id, 'CAMERA_DELETED', String(id)); return json(res, 200, { ok: true })

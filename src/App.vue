@@ -5,6 +5,7 @@ const me = ref(null), cameras = ref([]), catalog = reactive({ cameras: [], users
 const loading = ref(true), notice = ref(''), error = ref(''), page = ref('dashboard'), grid = ref(9), offset = ref(0), search = ref('')
 const credentials = reactive({ username: 'admin', password: '' })
 const cameraForm = reactive({ name: '', location: '', brand: '', stream_path: '', department_id: '' })
+const editingCameraId = ref(null)
 const userForm = reactive({ username: '', full_name: '', password: '', role_id: '', department_id: '' })
 const permissionRole = ref(''), permissionIds = ref([])
 
@@ -37,13 +38,24 @@ const currentPage = computed(() => Math.floor(offset.value / grid.value) + 1)
 function setGrid(value) { grid.value = value; offset.value = 0 }
 function next(delta) { offset.value = Math.min(Math.max(0, offset.value + delta * grid.value), Math.max(0, (pages.value - 1) * grid.value)) }
 
-async function addCamera() {
-  try { await request('/api/admin/cameras', { method:'POST', body:JSON.stringify(cameraForm) }); Object.keys(cameraForm).forEach(k=>cameraForm[k]=''); await Promise.all([loadCatalog(),loadCameras()]); flash('Kamera berhasil ditambahkan') }
+function resetCameraForm() {
+  Object.keys(cameraForm).forEach(k => cameraForm[k] = '')
+  editingCameraId.value = null
+}
+function editCamera(camera) {
+  editingCameraId.value = camera.id
+  Object.assign(cameraForm, { name: camera.name, location: camera.location || '', brand: camera.brand || '', stream_path: camera.stream_path, department_id: camera.department_id || '' })
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+async function saveCamera() {
+  const editing = editingCameraId.value !== null
+  const url = editing ? `/api/admin/cameras/${editingCameraId.value}` : '/api/admin/cameras'
+  try { await request(url, { method: editing ? 'PUT' : 'POST', body:JSON.stringify(cameraForm) }); resetCameraForm(); await Promise.all([loadCatalog(),loadCameras()]); flash(editing ? 'Kamera berhasil diperbarui' : 'Kamera berhasil ditambahkan') }
   catch(e) { flash(e.message,true) }
 }
 async function removeCamera(id) {
   if (!confirm('Hapus kamera ini?')) return
-  try { await request(`/api/admin/cameras/${id}`,{method:'DELETE'}); await Promise.all([loadCatalog(),loadCameras()]); flash('Kamera dihapus') } catch(e){ flash(e.message,true) }
+  try { await request(`/api/admin/cameras/${id}`,{method:'DELETE'}); if (editingCameraId.value === id) resetCameraForm(); await Promise.all([loadCatalog(),loadCameras()]); flash('Kamera dihapus') } catch(e){ flash(e.message,true) }
 }
 async function addUser() {
   try { await request('/api/admin/users',{method:'POST',body:JSON.stringify(userForm)}); Object.keys(userForm).forEach(k=>userForm[k]=''); await loadCatalog(); flash('User berhasil dibuat') } catch(e){ flash(e.message,true) }
@@ -80,10 +92,10 @@ onMounted(bootstrap)
       <template v-else>
         <div class="stats"><div><span>◉</span><p><b>{{catalog.cameras.length}}</b><small>Total kamera</small></p></div><div><span>♙</span><p><b>{{catalog.users.length}}</b><small>Account aktif</small></p></div><div><span>⌘</span><p><b>{{catalog.roles.length}}</b><small>Role tersedia</small></p></div></div>
         <div class="admin-grid">
-          <section v-if="me.can_manage_cameras" class="panel"><div class="panel-title"><div><p class="eyebrow">INVENTARIS</p><h2>Tambah kamera</h2></div></div><form @submit.prevent="addCamera" class="form-grid"><label>Nama<input v-model="cameraForm.name" required placeholder="Gerbang Utama"></label><label>Stream path<input v-model="cameraForm.stream_path" required placeholder="gerbang-utama"></label><label>Lokasi<input v-model="cameraForm.location" placeholder="Gedung A"></label><label>Brand<input v-model="cameraForm.brand" placeholder="Hikvision"></label><label>Bidang<select v-model="cameraForm.department_id"><option value="">Umum</option><option v-for="d in catalog.departments" :value="d.id">{{d.name}}</option></select></label><button class="primary">+ Tambah kamera</button></form></section>
+          <section v-if="me.can_manage_cameras" class="panel"><div class="panel-title"><div><p class="eyebrow">INVENTARIS</p><h2>{{ editingCameraId === null ? 'Tambah kamera' : 'Edit kamera' }}</h2></div><button v-if="editingCameraId !== null" class="ghost compact" type="button" @click="resetCameraForm">Batal edit</button></div><form @submit.prevent="saveCamera" class="form-grid"><label>Nama<input v-model="cameraForm.name" required placeholder="Gerbang Utama"></label><label>Stream path<input v-model="cameraForm.stream_path" required placeholder="gerbang-utama"></label><label>Lokasi<input v-model="cameraForm.location" placeholder="Gedung A"></label><label>Brand<input v-model="cameraForm.brand" placeholder="Hikvision"></label><label>Bidang<select v-model="cameraForm.department_id"><option value="">Umum</option><option v-for="d in catalog.departments" :value="d.id">{{d.name}}</option></select></label><button class="primary">{{ editingCameraId === null ? '+ Tambah kamera' : 'Simpan perubahan' }}</button></form></section>
           <section v-if="me.can_manage_users" class="panel"><p class="eyebrow">IDENTITAS</p><h2>Buat account</h2><form @submit.prevent="addUser" class="form-grid"><label>Username<input v-model="userForm.username" required></label><label>Nama lengkap<input v-model="userForm.full_name" required></label><label>Password<input v-model="userForm.password" type="password" minlength="8" required></label><label>Role<select v-model="userForm.role_id" required><option value="" disabled>Pilih role</option><option v-for="r in catalog.roles" :value="r.id">{{r.name}}</option></select></label><label>Bidang<select v-model="userForm.department_id"><option value="">Tanpa bidang</option><option v-for="d in catalog.departments" :value="d.id">{{d.name}}</option></select></label><button class="primary">+ Buat account</button></form></section>
           <section v-if="me.can_manage_users" class="panel wide"><p class="eyebrow">OTORISASI</p><h2>Pembagian kamera per role</h2><div class="permission-head"><select v-model="permissionRole" @change="loadPermissions"><option value="">Pilih role</option><option v-for="r in catalog.roles.filter(x=>!x.can_view_all)" :value="r.id">{{r.name}}</option></select><button class="primary" :disabled="!permissionRole" @click="savePermissions">Simpan akses</button></div><div v-if="permissionRole" class="checks"><label v-for="c in catalog.cameras"><input v-model="permissionIds" type="checkbox" :value="c.id"><span><b>{{c.name}}</b><small>{{c.location||'Tanpa lokasi'}}</small></span></label></div><p v-else class="muted">Pilih role non-administrator untuk mengatur kamera yang dapat dilihat.</p></section>
-          <section class="panel wide"><p class="eyebrow">DAFTAR ASET</p><h2>Kamera terdaftar</h2><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Path</th><th>Lokasi</th><th>Bidang</th><th></th></tr></thead><tbody><tr v-for="c in catalog.cameras"><td><b>{{c.name}}</b><small>{{c.brand||'Generic'}}</small></td><td><code>{{c.stream_path}}</code></td><td>{{c.location||'—'}}</td><td>{{c.department||'Umum'}}</td><td><button v-if="me.can_manage_cameras" class="danger-text" @click="removeCamera(c.id)">Hapus</button></td></tr></tbody></table></div></section>
+          <section class="panel wide"><p class="eyebrow">DAFTAR ASET</p><h2>Kamera terdaftar</h2><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Path</th><th>Lokasi</th><th>Bidang</th><th></th></tr></thead><tbody><tr v-for="c in catalog.cameras"><td><b>{{c.name}}</b><small>{{c.brand||'Generic'}}</small></td><td><code>{{c.stream_path}}</code></td><td>{{c.location||'—'}}</td><td>{{c.department||'Umum'}}</td><td><div v-if="me.can_manage_cameras" class="row-actions"><button class="edit-text" @click="editCamera(c)">Edit</button><button class="danger-text" @click="removeCamera(c.id)">Hapus</button></div></td></tr></tbody></table></div></section>
         </div>
       </template>
     </section>
