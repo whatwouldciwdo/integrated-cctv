@@ -82,6 +82,12 @@ RTSP_ENCRYPTION_KEY=GANTI_DENGAN_KUNCI_32_BYTE_BASE64
 SECURE_COOKIES=false
 SERVER_LAN_IP=10.8.140.67
 MEDIAMTX_WEBRTC_BASE=http://10.8.140.67:8889
+NVR_BASE_URL=http://192.168.141.170
+NVR_RTSP_HOST=192.168.141.170
+NVR_RTSP_PORT=554
+NVR_USERNAME=cctv_api
+NVR_PASSWORD=GANTI_DENGAN_PASSWORD_AKUN_INTEGRASI_NVR
+PLAYBACK_SESSION_TTL_MINUTES=120
 ```
 
 Catatan:
@@ -91,6 +97,17 @@ Catatan:
 - Jika password database mengandung karakter khusus URL seperti `@`, `:`, `/`, `?`, atau `#`, lakukan URL encoding pada password tersebut.
 - Gunakan `SECURE_COOKIES=true` hanya setelah dashboard dilayani melalui HTTPS.
 - Batasi permission file environment dengan `chmod 600 .env`.
+- Gunakan akun lokal NVR khusus integrasi dengan **Remote Playback/Search**, bukan akun admin utama. Credential NVR hanya dipakai backend dan tidak dikirim ke browser.
+
+### Pemetaan channel untuk playback NVR
+
+Setelah service berjalan, login sebagai Administrator dan buka **Management**. Edit setiap kamera lalu isi **Channel NVR** sesuai nilai `<id>` dari endpoint Hikvision `InputProxy/channels`. Contoh:
+
+- `<id>1</id>` → isi `1` (backend memakai track playback `101`)
+- `<id>7</id>` → isi `7` (backend memakai track playback `701`)
+- `<id>20</id>` → isi `20` (backend memakai track playback `2001`)
+
+Kamera tanpa Channel NVR tetap dapat digunakan untuk live view, tetapi menu Playback akan menandainya sebagai **belum dipetakan**.
 
 ## 5. Uji koneksi jaringan ke PostgreSQL
 

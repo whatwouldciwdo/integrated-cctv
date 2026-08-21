@@ -47,6 +47,14 @@ export async function upsertMediaPath(streamPath, source) {
   if (patched.status === 404) await mediaRequest('POST', `/v3/config/paths/add/${routeName}`, payload)
 }
 
+export async function upsertPlaybackPath(streamPath, source) {
+  streamPath = validateStreamPath(streamPath)
+  const payload = { source: validateRtspSource(source), sourceOnDemand: true, rtspTransport: 'tcp' }
+  const routeName = encodeURIComponent(streamPath)
+  const patched = await mediaRequest('PATCH', `/v3/config/paths/patch/${routeName}`, payload, [200, 404])
+  if (patched.status === 404) await mediaRequest('POST', `/v3/config/paths/add/${routeName}`, payload)
+}
+
 export async function deleteMediaPath(streamPath) {
   streamPath = validateStreamPath(streamPath)
   await mediaRequest('DELETE', `/v3/config/paths/delete/${encodeURIComponent(streamPath)}`, null, [200, 404])

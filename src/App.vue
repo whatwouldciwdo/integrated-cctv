@@ -4,10 +4,21 @@ import { computed, onMounted, reactive, ref } from 'vue'
 const me = ref(null), cameras = ref([]), catalog = reactive({ cameras: [], users: [], roles: [], departments: [] })
 const loading = ref(true), notice = ref(''), error = ref(''), page = ref('dashboard'), grid = ref(9), offset = ref(0), search = ref('')
 const credentials = reactive({ username: 'admin', password: '' })
-const cameraForm = reactive({ name: '', location: '', brand: '', stream_path: '', department_id: '', rtsp_source: '' })
+const cameraForm = reactive({ name: '', location: '', brand: '', stream_path: '', department_id: '', rtsp_source: '', nvr_channel: '' })
 const editingCameraId = ref(null)
 const userForm = reactive({ username: '', full_name: '', password: '', role_id: '', department_id: '' })
 const permissionRole = ref(''), permissionIds = ref([])
+const playback = reactive({ camera_id: '', start: '', end: '', recordings: [], player_url: '', loading: false, active: null })
+
+function localDateTime(date) {
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+function resetPlaybackRange() {
+  const end = new Date(), start = new Date(end.getTime() - 2 * 60 * 60 * 1000)
+  playback.start = localDateTime(start); playback.end = localDateTime(end)
+}
+resetPlaybackRange()
 
 async function request(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(options.headers || {}) }, ...options })
@@ -44,7 +55,7 @@ function resetCameraForm() {
 }
 function editCamera(camera) {
   editingCameraId.value = camera.id
-  Object.assign(cameraForm, { name: camera.name, location: camera.location || '', brand: camera.brand || '', stream_path: camera.stream_path, department_id: camera.department_id || '', rtsp_source: '' })
+  Object.assign(cameraForm, { name: camera.name, location: camera.location || '', brand: camera.brand || '', stream_path: camera.stream_path, department_id: camera.department_id || '', rtsp_source: '', nvr_channel: camera.nvr_channel || '' })
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 async function saveCamera() {
@@ -67,6 +78,31 @@ async function loadPermissions() {
 async function savePermissions() {
   try { await request(`/api/admin/roles/${permissionRole.value}/cameras`,{method:'PUT',body:JSON.stringify({camera_ids:permissionIds.value})}); flash('Pembagian kamera tersimpan') } catch(e){ flash(e.message,true) }
 }
+async function findRecordings() {
+  if (!playback.camera_id) return flash('Pilih kamera terlebih dahulu', true)
+  playback.loading = true; playback.player_url = ''; playback.active = null
+  try {
+    const params = new URLSearchParams({ camera_id: playback.camera_id, start: new Date(playback.start).toISOString(), end: new Date(playback.end).toISOString() })
+    const data = await request(`/api/playback/recordings?${params}`)
+    playback.recordings = data.recordings
+    if (!data.recordings.length) flash('Tidak ada rekaman pada rentang waktu tersebut')
+  } catch (e) { playback.recordings = []; flash(e.message, true) }
+  finally { playback.loading = false }
+}
+async function playRecording(recording) {
+  playback.loading = true
+  try {
+    const data = await request('/api/playback/session', { method: 'POST', body: JSON.stringify({ camera_id: playback.camera_id, start: recording.start_time, end: recording.end_time }) })
+    playback.player_url = data.player_url; playback.active = recording
+  } catch (e) { flash(e.message, true) }
+  finally { playback.loading = false }
+}
+const dateLabel = value => new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value))
+function durationLabel(item) {
+  const seconds = Math.max(0, Math.round((new Date(item.end_time) - new Date(item.start_time)) / 1000))
+  const hours = Math.floor(seconds / 3600), minutes = Math.floor((seconds % 3600) / 60)
+  return `${hours ? `${hours} jam ` : ''}${minutes} menit`
+}
 onMounted(bootstrap)
 </script>
 
@@ -77,9 +113,9 @@ onMounted(bootstrap)
     <form class="login-card" @submit.prevent="login"><p class="eyebrow">AKSES TERBATAS</p><h2>Masuk ke dashboard</h2><p>Gunakan akun bidang yang telah diberikan administrator.</p><label>Username<input v-model="credentials.username" autocomplete="username" required></label><label>Password<input v-model="credentials.password" type="password" autocomplete="current-password" required autofocus></label><button class="primary">Masuk <span>→</span></button><small>Default awal: admin / password dari environment server</small></form>
   </main>
   <div v-else class="app-shell">
-    <aside><div class="brand"><div class="logo">SC</div><div><b>SENTRA</b><small>CCTV CONTROL</small></div></div><nav><button :class="{active:page==='dashboard'}" @click="page='dashboard'">▦ <span>Live Monitor</span></button><button v-if="isAdmin" :class="{active:page==='admin'}" @click="page='admin';loadCatalog()">⚙ <span>Management</span></button></nav><div class="aside-status"><i></i><div><b>System Online</b><small>{{ cameras.length }} kamera tersedia</small></div></div></aside>
+    <aside><div class="brand"><div class="logo">SC</div><div><b>SENTRA</b><small>CCTV CONTROL</small></div></div><nav><button :class="{active:page==='dashboard'}" @click="page='dashboard'">▦ <span>Live Monitor</span></button><button :class="{active:page==='playback'}" @click="page='playback'">▶ <span>Playback</span></button><button v-if="isAdmin" :class="{active:page==='admin'}" @click="page='admin';loadCatalog()">⚙ <span>Management</span></button></nav><div class="aside-status"><i></i><div><b>System Online</b><small>{{ cameras.length }} kamera tersedia</small></div></div></aside>
     <section class="workspace">
-      <header><div><p class="eyebrow">PUSAT KENDALI INTERNAL</p><h1>{{ page==='dashboard'?'Live Monitor':'Management' }}</h1></div><div class="user"><div class="avatar">{{ me.full_name.slice(0,2).toUpperCase() }}</div><div><b>{{ me.full_name }}</b><small>{{ me.role }}</small></div><button title="Keluar" @click="logout">↪</button></div></header>
+      <header><div><p class="eyebrow">PUSAT KENDALI INTERNAL</p><h1>{{ page==='dashboard' ? 'Live Monitor' : page==='playback' ? 'Playback Rekaman' : 'Management' }}</h1></div><div class="user"><div class="avatar">{{ me.full_name.slice(0,2).toUpperCase() }}</div><div><b>{{ me.full_name }}</b><small>{{ me.role }}</small></div><button title="Keluar" @click="logout">↪</button></div></header>
       <div v-if="notice" class="toast success">{{ notice }}</div><div v-if="error" class="toast danger">{{ error }}</div>
       <template v-if="page==='dashboard'">
         <div class="toolbar"><div class="search">⌕<input v-model="search" placeholder="Cari nama, lokasi, bidang…"></div><div class="segmented"><button v-for="n in [1,4,9,16]" :class="{active:grid===n}" @click="setGrid(n)">{{n}}</button></div><button class="ghost" @click="loadCameras">↻ Refresh</button></div>
@@ -89,13 +125,20 @@ onMounted(bootstrap)
         </div>
         <div class="pagination"><button :disabled="currentPage===1" @click="next(-1)">← Sebelumnya</button><span>{{currentPage}} / {{pages}} · {{filtered.length}} kamera</span><button :disabled="currentPage===pages" @click="next(1)">Berikutnya →</button></div>
       </template>
+      <template v-else-if="page==='playback'">
+        <section class="panel playback-filter"><div><p class="eyebrow">ARSIP NVR</p><h2>Cari rekaman</h2></div><form @submit.prevent="findRecordings" class="playback-form"><label>Kamera<select v-model="playback.camera_id" required><option value="" disabled>Pilih kamera</option><option v-for="c in cameras" :key="c.id" :value="c.id">{{c.name}}{{c.nvr_channel ? ` · CH ${c.nvr_channel}` : ' · belum dipetakan'}}</option></select></label><label>Mulai<input v-model="playback.start" type="datetime-local" required></label><label>Selesai<input v-model="playback.end" type="datetime-local" required></label><button class="primary" :disabled="playback.loading">{{playback.loading?'Memproses…':'⌕ Cari rekaman'}}</button></form></section>
+        <div class="playback-layout">
+          <section class="panel playback-viewer"><div v-if="playback.player_url" class="archive-feed"><iframe :key="playback.player_url" :src="playback.player_url" allow="autoplay; fullscreen"></iframe></div><div v-else class="playback-placeholder"><span>▶</span><b>Pilih segmen rekaman</b><small>Hasil pencarian akan tampil di sebelah kanan.</small></div><div v-if="playback.active" class="playing-info"><div><b>{{cameras.find(c=>String(c.id)===String(playback.camera_id))?.name}}</b><small>{{dateLabel(playback.active.start_time)}} — {{dateLabel(playback.active.end_time)}}</small></div><a :href="playback.player_url" target="_blank">Buka penuh ⛶</a></div></section>
+          <section class="panel recording-list"><div class="panel-title"><div><p class="eyebrow">HASIL PENCARIAN</p><h2>{{playback.recordings.length}} segmen</h2></div></div><div v-if="!playback.recordings.length" class="recording-empty">Atur kamera dan rentang waktu, lalu tekan <b>Cari rekaman</b>.</div><button v-for="item in playback.recordings" :key="item.id" class="recording-item" :class="{active:playback.active?.id===item.id}" @click="playRecording(item)"><span class="record-icon">▶</span><span><b>{{dateLabel(item.start_time)}}</b><small>s.d. {{dateLabel(item.end_time)}} · {{durationLabel(item)}}</small></span><em>{{item.codec}}</em></button></section>
+        </div>
+      </template>
       <template v-else>
         <div class="stats"><div><span>◉</span><p><b>{{catalog.cameras.length}}</b><small>Total kamera</small></p></div><div><span>♙</span><p><b>{{catalog.users.length}}</b><small>Account aktif</small></p></div><div><span>⌘</span><p><b>{{catalog.roles.length}}</b><small>Role tersedia</small></p></div></div>
         <div class="admin-grid">
-          <section v-if="me.can_manage_cameras" class="panel"><div class="panel-title"><div><p class="eyebrow">INVENTARIS</p><h2>{{ editingCameraId === null ? 'Tambah kamera' : 'Edit kamera' }}</h2></div><button v-if="editingCameraId !== null" class="ghost compact" type="button" @click="resetCameraForm">Batal edit</button></div><form @submit.prevent="saveCamera" class="form-grid"><label>Nama<input v-model="cameraForm.name" required placeholder="Gerbang Utama"></label><label>Stream path<input v-model="cameraForm.stream_path" required pattern="[A-Za-z0-9._~-]+" title="Gunakan huruf, angka, titik, underscore, tilde, atau tanda hubung" placeholder="gerbang-utama"></label><label>Lokasi<input v-model="cameraForm.location" placeholder="Gedung A"></label><label>Brand<input v-model="cameraForm.brand" placeholder="Hikvision"></label><label>Bidang<select v-model="cameraForm.department_id"><option value="">Umum</option><option v-for="d in catalog.departments" :value="d.id">{{d.name}}</option></select></label><label class="full-field">RTSP Source URL <small v-if="editingCameraId !== null">Kosongkan untuk mempertahankan URL tersimpan.</small><input v-model="cameraForm.rtsp_source" type="password" autocomplete="new-password" placeholder="rtsp://viewer:password@192.168.1.10:554/substream"></label><button class="primary">{{ editingCameraId === null ? '+ Tambah kamera' : 'Simpan perubahan' }}</button></form></section>
+          <section v-if="me.can_manage_cameras" class="panel"><div class="panel-title"><div><p class="eyebrow">INVENTARIS</p><h2>{{ editingCameraId === null ? 'Tambah kamera' : 'Edit kamera' }}</h2></div><button v-if="editingCameraId !== null" class="ghost compact" type="button" @click="resetCameraForm">Batal edit</button></div><form @submit.prevent="saveCamera" class="form-grid"><label>Nama<input v-model="cameraForm.name" required placeholder="Gerbang Utama"></label><label>Stream path<input v-model="cameraForm.stream_path" required pattern="[A-Za-z0-9._~-]+" title="Gunakan huruf, angka, titik, underscore, tilde, atau tanda hubung" placeholder="gerbang-utama"></label><label>Lokasi<input v-model="cameraForm.location" placeholder="Gedung A"></label><label>Brand<input v-model="cameraForm.brand" placeholder="Hikvision"></label><label>Bidang<select v-model="cameraForm.department_id"><option value="">Umum</option><option v-for="d in catalog.departments" :value="d.id">{{d.name}}</option></select></label><label>Channel NVR <small>ID InputProxy Hikvision (1–128) untuk playback.</small><input v-model="cameraForm.nvr_channel" type="number" min="1" max="128" placeholder="7"></label><label class="full-field">RTSP Source URL <small v-if="editingCameraId !== null">Kosongkan untuk mempertahankan URL tersimpan.</small><input v-model="cameraForm.rtsp_source" type="password" autocomplete="new-password" placeholder="rtsp://viewer:password@192.168.1.10:554/substream"></label><button class="primary">{{ editingCameraId === null ? '+ Tambah kamera' : 'Simpan perubahan' }}</button></form></section>
           <section v-if="me.can_manage_users" class="panel"><p class="eyebrow">IDENTITAS</p><h2>Buat account</h2><form @submit.prevent="addUser" class="form-grid"><label>Username<input v-model="userForm.username" required></label><label>Nama lengkap<input v-model="userForm.full_name" required></label><label>Password<input v-model="userForm.password" type="password" minlength="8" required></label><label>Role<select v-model="userForm.role_id" required><option value="" disabled>Pilih role</option><option v-for="r in catalog.roles" :value="r.id">{{r.name}}</option></select></label><label>Bidang<select v-model="userForm.department_id"><option value="">Tanpa bidang</option><option v-for="d in catalog.departments" :value="d.id">{{d.name}}</option></select></label><button class="primary">+ Buat account</button></form></section>
           <section v-if="me.can_manage_users" class="panel wide"><p class="eyebrow">OTORISASI</p><h2>Pembagian kamera per role</h2><div class="permission-head"><select v-model="permissionRole" @change="loadPermissions"><option value="">Pilih role</option><option v-for="r in catalog.roles.filter(x=>!x.can_view_all)" :value="r.id">{{r.name}}</option></select><button class="primary" :disabled="!permissionRole" @click="savePermissions">Simpan akses</button></div><div v-if="permissionRole" class="checks"><label v-for="c in catalog.cameras"><input v-model="permissionIds" type="checkbox" :value="c.id"><span><b>{{c.name}}</b><small>{{c.location||'Tanpa lokasi'}}</small></span></label></div><p v-else class="muted">Pilih role non-administrator untuk mengatur kamera yang dapat dilihat.</p></section>
-          <section class="panel wide"><p class="eyebrow">DAFTAR ASET</p><h2>Kamera terdaftar</h2><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Path</th><th>Sumber</th><th>Lokasi</th><th>Bidang</th><th></th></tr></thead><tbody><tr v-for="c in catalog.cameras"><td><b>{{c.name}}</b><small>{{c.brand||'Generic'}}</small></td><td><code>{{c.stream_path}}</code></td><td><span class="source-status" :class="{managed:c.rtsp_configured}">{{c.rtsp_configured?'Database':'YAML / eksternal'}}</span></td><td>{{c.location||'—'}}</td><td>{{c.department||'Umum'}}</td><td><div v-if="me.can_manage_cameras" class="row-actions"><button class="edit-text" @click="editCamera(c)">Edit</button><button class="danger-text" @click="removeCamera(c.id)">Hapus</button></div></td></tr></tbody></table></div></section>
+          <section class="panel wide"><p class="eyebrow">DAFTAR ASET</p><h2>Kamera terdaftar</h2><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Path</th><th>NVR</th><th>Sumber</th><th>Lokasi</th><th>Bidang</th><th></th></tr></thead><tbody><tr v-for="c in catalog.cameras"><td><b>{{c.name}}</b><small>{{c.brand||'Generic'}}</small></td><td><code>{{c.stream_path}}</code></td><td>{{c.nvr_channel ? `CH ${c.nvr_channel}` : '—'}}</td><td><span class="source-status" :class="{managed:c.rtsp_configured}">{{c.rtsp_configured?'Database':'YAML / eksternal'}}</span></td><td>{{c.location||'—'}}</td><td>{{c.department||'Umum'}}</td><td><div v-if="me.can_manage_cameras" class="row-actions"><button class="edit-text" @click="editCamera(c)">Edit</button><button class="danger-text" @click="removeCamera(c.id)">Hapus</button></div></td></tr></tbody></table></div></section>
         </div>
       </template>
     </section>

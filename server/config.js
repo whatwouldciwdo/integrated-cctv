@@ -9,6 +9,12 @@ export const config = {
   mediaBase: (process.env.MEDIAMTX_WEBRTC_BASE || 'http://localhost:8889').replace(/\/$/, ''),
   mediaApiBase: (process.env.MEDIAMTX_API_BASE || 'http://localhost:9997').replace(/\/$/, ''),
   rtspEncryptionKey: process.env.RTSP_ENCRYPTION_KEY || '',
+  nvrBaseUrl: (process.env.NVR_BASE_URL || '').replace(/\/$/, ''),
+  nvrRtspHost: process.env.NVR_RTSP_HOST || '',
+  nvrRtspPort: Number(process.env.NVR_RTSP_PORT || 554),
+  nvrUsername: process.env.NVR_USERNAME || '',
+  nvrPassword: process.env.NVR_PASSWORD || '',
+  playbackSessionTtlMs: Number(process.env.PLAYBACK_SESSION_TTL_MINUTES || 120) * 60 * 1000,
   production: process.env.NODE_ENV === 'production',
   secureCookies: process.env.SECURE_COOKIES === 'true',
 }

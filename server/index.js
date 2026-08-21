@@ -3,8 +3,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { audit, initializeDatabase, one, query, transaction } from './db.js'
 import { config } from './config.js'
-import { deleteMediaPath, scheduleMediaPathSynchronization, upsertMediaPath, validateRtspSource, validateStreamPath } from './mediamtx.js'
+import { deleteMediaPath, scheduleMediaPathSynchronization, upsertMediaPath, upsertPlaybackPath, validateRtspSource, validateStreamPath } from './mediamtx.js'
 import { decryptSecret, encryptSecret, hashPassword, newSessionToken, tokenDigest, verifyPassword } from './security.js'
+import { playbackRtspUrl, searchRecordings } from './hikvision.js'
+import { randomBytes } from 'node:crypto'
 
 const json = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -38,11 +40,35 @@ async function currentUser(req) {
 const clean = value => String(value || '').trim()
 const routeId = (pathname, resource) => pathname.match(new RegExp(`^/api/${resource}/(\\d+)$`))?.[1]
 const cameraFields = `c.id,c.name,c.location,c.brand,c.stream_path,c.department_id,c.enabled,c.created_at,
-  (c.rtsp_source_encrypted IS NOT NULL) rtsp_configured,d.name department`
+  c.nvr_channel,(c.rtsp_source_encrypted IS NOT NULL) rtsp_configured,d.name department`
+
+async function visibleCamera(user, id) {
+  return user.can_view_all
+    ? one('SELECT id,nvr_channel FROM cameras WHERE id=$1 AND enabled=TRUE', [id])
+    : one(`SELECT c.id,c.nvr_channel FROM cameras c JOIN role_cameras rc ON rc.camera_id=c.id
+        WHERE c.id=$1 AND c.enabled=TRUE AND rc.role_id=$2`, [id, user.role_id])
+}
+
+const playbackTimers = new Map()
+function expirePlaybackPath(streamPath) {
+  clearTimeout(playbackTimers.get(streamPath))
+  const timer = setTimeout(async () => {
+    playbackTimers.delete(streamPath)
+    try { await deleteMediaPath(streamPath) } catch (error) { console.error(`[playback] Cleanup ${streamPath} gagal: ${error.message}`) }
+  }, config.playbackSessionTtlMs)
+  timer.unref?.(); playbackTimers.set(streamPath, timer)
+}
 
 function rtspInput(value) {
   const source = clean(value)
   return source ? validateRtspSource(source) : ''
+}
+
+function nvrChannelInput(value) {
+  if (value === '' || value === null || value === undefined) return null
+  const channel = Number(value)
+  if (!Number.isInteger(channel) || channel < 1 || channel > 128) throw Object.assign(new Error('Channel NVR harus berupa angka 1–128'), { status: 400 })
+  return channel
 }
 
 async function api(req, res, url) {
@@ -78,6 +104,28 @@ async function api(req, res, url) {
     const { rows } = await query(sql, user.can_view_all ? [] : [user.role_id])
     return json(res, 200, rows.map(c => ({ ...c, player_url: `${config.mediaBase}/${encodeURIComponent(c.stream_path)}/` })))
   }
+  if (req.method === 'GET' && url.pathname === '/api/playback/recordings') {
+    const cameraId = Number(url.searchParams.get('camera_id'))
+    if (!Number.isInteger(cameraId)) return json(res, 400, { error: 'Kamera tidak valid' })
+    const camera = await visibleCamera(user, cameraId)
+    if (!camera) return json(res, 404, { error: 'Kamera tidak ditemukan atau tidak dapat diakses' })
+    if (!camera.nvr_channel) return json(res, 400, { error: 'Channel NVR kamera belum diatur oleh administrator' })
+    const recordings = await searchRecordings(camera.nvr_channel, url.searchParams.get('start'), url.searchParams.get('end'))
+    await audit(user.id, 'PLAYBACK_SEARCH', `${cameraId}:${recordings.length}`)
+    return json(res, 200, { recordings })
+  }
+  if (req.method === 'POST' && url.pathname === '/api/playback/session') {
+    const v = await body(req); const cameraId = Number(v.camera_id)
+    if (!Number.isInteger(cameraId)) return json(res, 400, { error: 'Kamera tidak valid' })
+    const camera = await visibleCamera(user, cameraId)
+    if (!camera) return json(res, 404, { error: 'Kamera tidak ditemukan atau tidak dapat diakses' })
+    if (!camera.nvr_channel) return json(res, 400, { error: 'Channel NVR kamera belum diatur oleh administrator' })
+    const streamPath = `playback-${randomBytes(18).toString('base64url')}`
+    await upsertPlaybackPath(streamPath, playbackRtspUrl(camera.nvr_channel, v.start, v.end))
+    expirePlaybackPath(streamPath)
+    await audit(user.id, 'PLAYBACK_STARTED', `${cameraId}:${clean(v.start)}:${clean(v.end)}`)
+    return json(res, 201, { player_url: `${config.mediaBase}/${encodeURIComponent(streamPath)}/`, expires_in_seconds: Math.floor(config.playbackSessionTtlMs / 1000) })
+  }
   if (req.method === 'GET' && url.pathname === '/api/admin/catalog') {
     if (!user.can_manage_users && !user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
     const [departments, roles, cameras, users] = await Promise.all([
@@ -92,9 +140,10 @@ async function api(req, res, url) {
     const v = await body(req); if (!clean(v.name) || !clean(v.stream_path)) return json(res, 400, { error: 'Nama dan stream path wajib diisi' })
     const streamPath = validateStreamPath(v.stream_path)
     const source = rtspInput(v.rtsp_source)
+    const nvrChannel = nvrChannelInput(v.nvr_channel)
     const result = await transaction(async client => {
-      const inserted = await client.query(`INSERT INTO cameras(name,location,brand,stream_path,department_id,rtsp_source_encrypted)
-        VALUES($1,$2,$3,$4,$5,$6) RETURNING id`, [clean(v.name), clean(v.location), clean(v.brand), streamPath, v.department_id || null, source ? encryptSecret(source, config.rtspEncryptionKey) : null])
+      const inserted = await client.query(`INSERT INTO cameras(name,location,brand,stream_path,department_id,rtsp_source_encrypted,nvr_channel)
+        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [clean(v.name), clean(v.location), clean(v.brand), streamPath, v.department_id || null, source ? encryptSecret(source, config.rtspEncryptionKey) : null, nvrChannel])
       if (source) await upsertMediaPath(streamPath, source)
       return inserted.rows[0]
     })
@@ -106,14 +155,15 @@ async function api(req, res, url) {
     if (!clean(v.name) || !clean(v.stream_path)) return json(res, 400, { error: 'Nama dan stream path wajib diisi' })
     const submittedSource = rtspInput(v.rtsp_source)
     const nextPath = validateStreamPath(v.stream_path)
+    const nvrChannel = nvrChannelInput(v.nvr_channel)
     const result = await transaction(async client => {
       const currentResult = await client.query('SELECT stream_path,rtsp_source_encrypted FROM cameras WHERE id=$1 FOR UPDATE', [id])
       const current = currentResult.rows[0]
       if (!current) return null
       const source = submittedSource || (current.rtsp_source_encrypted ? decryptSecret(current.rtsp_source_encrypted, config.rtspEncryptionKey) : '')
-      const updated = await client.query(`UPDATE cameras SET name=$1,location=$2,brand=$3,stream_path=$4,department_id=$5,
+      const updated = await client.query(`UPDATE cameras SET name=$1,location=$2,brand=$3,stream_path=$4,department_id=$5,nvr_channel=$8,
         rtsp_source_encrypted=CASE WHEN $6::text IS NULL THEN rtsp_source_encrypted ELSE $6 END
-        WHERE id=$7 RETURNING id`, [clean(v.name), clean(v.location), clean(v.brand), nextPath, v.department_id || null, submittedSource ? encryptSecret(submittedSource, config.rtspEncryptionKey) : null, id])
+        WHERE id=$7 RETURNING id`, [clean(v.name), clean(v.location), clean(v.brand), nextPath, v.department_id || null, submittedSource ? encryptSecret(submittedSource, config.rtspEncryptionKey) : null, id, nvrChannel])
       if (source) await upsertMediaPath(nextPath, source)
       if (source && current.stream_path !== nextPath) await deleteMediaPath(current.stream_path)
       return updated.rows[0]

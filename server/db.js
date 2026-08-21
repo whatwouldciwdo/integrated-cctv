@@ -51,9 +51,14 @@ CREATE TABLE IF NOT EXISTS cameras (
   id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, location TEXT NOT NULL DEFAULT '', brand TEXT NOT NULL DEFAULT '',
   stream_path TEXT NOT NULL UNIQUE, department_id BIGINT REFERENCES departments(id),
   enabled BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  rtsp_source_encrypted TEXT
+  rtsp_source_encrypted TEXT, nvr_channel INTEGER CHECK (nvr_channel BETWEEN 1 AND 128)
 );
 ALTER TABLE cameras ADD COLUMN IF NOT EXISTS rtsp_source_encrypted TEXT;
+ALTER TABLE cameras ADD COLUMN IF NOT EXISTS nvr_channel INTEGER;
+DO $$ BEGIN
+  ALTER TABLE cameras ADD CONSTRAINT cameras_nvr_channel_check CHECK (nvr_channel BETWEEN 1 AND 128);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE TABLE IF NOT EXISTS role_cameras (
   role_id BIGINT NOT NULL, camera_id BIGINT NOT NULL,
   PRIMARY KEY(role_id, camera_id),
