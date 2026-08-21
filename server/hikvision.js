@@ -87,6 +87,19 @@ export async function searchRecordings(channel, startValue, endValue) {
   })).filter(item => item.start_time && item.end_time)
 }
 
+export async function listInputProxyChannels() {
+  const response = await digestFetch('/ISAPI/ContentMgmt/InputProxy/channels')
+  const xml = await response.text()
+  if (!response.ok) throw httpError(`Daftar channel ditolak NVR (HTTP ${response.status})`, response.status === 401 || response.status === 403 ? 502 : response.status)
+  const channels = [...xml.matchAll(/<InputProxyChannel(?:\s[^>]*)?>([\s\S]*?)<\/InputProxyChannel>/gi)].map(([, item]) => ({
+    channel: Number(tag(item, 'id')),
+    ip_address: tag(item, 'ipAddress').toLowerCase(),
+    name: tag(item, 'name'),
+  })).filter(item => Number.isInteger(item.channel) && item.channel >= 1 && item.channel <= 128 && item.ip_address)
+  if (!channels.length) throw httpError('NVR tidak mengembalikan InputProxy channel beserta alamat IP')
+  return channels
+}
+
 const hikvisionTime = date => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
 
 export function playbackRtspUrl(channel, startValue, endValue) {

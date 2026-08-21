@@ -5,7 +5,7 @@ import { audit, initializeDatabase, one, query, transaction } from './db.js'
 import { config } from './config.js'
 import { deleteMediaPath, scheduleMediaPathSynchronization, upsertMediaPath, upsertPlaybackPath, validateRtspSource, validateStreamPath } from './mediamtx.js'
 import { decryptSecret, encryptSecret, hashPassword, newSessionToken, tokenDigest, verifyPassword } from './security.js'
-import { playbackRtspUrl, searchRecordings } from './hikvision.js'
+import { listInputProxyChannels, playbackRtspUrl, searchRecordings } from './hikvision.js'
 import { randomBytes } from 'node:crypto'
 
 const json = (res, status, body) => {
@@ -134,6 +134,41 @@ async function api(req, res, url) {
       query(`SELECT u.id,u.username,u.full_name,u.active,u.role_id,u.department_id,r.name role,d.name department FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN departments d ON d.id=u.department_id ORDER BY u.username`),
     ])
     return json(res, 200, { departments: departments.rows, roles: roles.rows, cameras: cameras.rows, users: users.rows })
+  }
+  if (req.method === 'POST' && url.pathname === '/api/admin/nvr/sync-channels') {
+    if (!user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
+    const nvrChannels = await listInputProxyChannels()
+    const cameraResult = await query(`SELECT id,name,rtsp_source_encrypted FROM cameras
+      WHERE enabled=TRUE AND rtsp_source_encrypted IS NOT NULL ORDER BY id`)
+    const channelsByIp = new Map()
+    for (const item of nvrChannels) {
+      const list = channelsByIp.get(item.ip_address) || []
+      list.push(item); channelsByIp.set(item.ip_address, list)
+    }
+    const matched = [], unmatched = [], ambiguous = [], camerasByIp = new Map()
+    for (const camera of cameraResult.rows) {
+      let ip
+      try { ip = new URL(decryptSecret(camera.rtsp_source_encrypted, config.rtspEncryptionKey)).hostname.replace(/^\[|\]$/g, '').toLowerCase() }
+      catch { unmatched.push({ id: Number(camera.id), name: camera.name, reason: 'RTSP Source tidak dapat dibaca' }); continue }
+      const sameIp = camerasByIp.get(ip) || []
+      sameIp.push(camera); camerasByIp.set(ip, sameIp)
+    }
+    for (const [ip, camerasAtIp] of camerasByIp) {
+      const candidates = channelsByIp.get(ip) || []
+      if (camerasAtIp.length === 1 && candidates.length === 1) {
+        const camera = camerasAtIp[0]
+        matched.push({ id: Number(camera.id), name: camera.name, ip_address: ip, channel: candidates[0].channel })
+      } else if (candidates.length && camerasAtIp.length) {
+        ambiguous.push({ camera_ids: camerasAtIp.map(camera => Number(camera.id)), names: camerasAtIp.map(camera => camera.name), ip_address: ip, channels: candidates.map(item => item.channel) })
+      } else {
+        for (const camera of camerasAtIp) unmatched.push({ id: Number(camera.id), name: camera.name, ip_address: ip, reason: 'IP tidak ditemukan di NVR' })
+      }
+    }
+    await transaction(async client => {
+      for (const item of matched) await client.query('UPDATE cameras SET nvr_channel=$1 WHERE id=$2', [item.channel, item.id])
+    })
+    await audit(user.id, 'NVR_CHANNELS_SYNCED', `matched=${matched.length};unmatched=${unmatched.length};ambiguous=${ambiguous.length}`)
+    return json(res, 200, { matched, unmatched, ambiguous, nvr_channels: nvrChannels.length })
   }
   if (req.method === 'POST' && url.pathname === '/api/admin/cameras') {
     if (!user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
