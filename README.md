@@ -135,7 +135,9 @@ Untuk kebutuhan bidang yang berbeda, tambahkan role baru langsung di PostgreSQL 
 - Grid menggunakan substream 360p–720p, 5–15 fps, sekitar 0.5–1 Mbps.
 - Satu Mini PC Intel N100 disarankan menampilkan 9–16 kamera bersamaan.
 - `sourceOnDemand: true` mencegah server menarik semua stream saat tidak ada viewer.
-- WebRTC membutuhkan TCP 8889 dan UDP 8189 antara client dan server.
+- WebRTC membutuhkan TCP 8889 serta UDP 8189 antara client dan server. TCP 8189 juga
+  dipublish sebagai fallback ICE. `SERVER_LAN_IP` harus berisi alamat server yang dapat
+  dijangkau browser karena alamat tersebut diiklankan MediaMTX sebagai candidate WebRTC.
 
 ## Database dan persiapan playback
 

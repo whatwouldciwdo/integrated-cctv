@@ -25,7 +25,11 @@ services:
       dockerfile: deploy/Dockerfile.mediamtx
     image: sentra-cctv-mediamtx:local
     restart: unless-stopped
+    environment:
+      # Advertise IP host, bukan IP internal container, sebagai ICE candidate WebRTC.
+      MTX_WEBRTCADDITIONALHOSTS: ${SERVER_LAN_IP:-10.8.140.67}
     ports:
       - "8554:8554"
       - "8889:8889"
+      - "8189:8189"
       - "8189:8189/udp"

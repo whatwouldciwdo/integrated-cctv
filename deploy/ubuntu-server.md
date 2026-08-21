@@ -121,6 +121,7 @@ paths:
   lobby-barat:
     source: rtsp://viewer:PASSWORD_KAMERA@192.168.10.30:554/substream
     sourceOnDemand: true
+    rtspTransport: tcp
 ```
 
 Nama path (`lobby-barat`) harus sama dengan **Stream path** yang dimasukkan melalui dashboard. Gunakan substream H.264 agar grid tetap ringan.
@@ -144,6 +145,7 @@ sudo ufw allow OpenSSH
 sudo ufw allow from 10.8.0.0/16 to any port 8080 proto tcp
 sudo ufw allow from 10.8.0.0/16 to any port 8889 proto tcp
 sudo ufw allow from 10.8.0.0/16 to any port 8189 proto udp
+sudo ufw allow from 10.8.0.0/16 to any port 8189 proto tcp
 sudo ufw enable
 sudo ufw status verbose
 ```
@@ -182,6 +184,37 @@ Respons yang diharapkan:
 
 ```json
 {"ok":true,"database":"connected"}
+```
+
+### Diagnosis bila kotak kamera menampilkan error
+
+Pesan pada player menunjukkan tahap yang gagal dan bukan error layout dashboard:
+
+- **`source of path ... has timed out`**: MediaMTX/server tidak menerima stream RTSP.
+  Uji port kamera dari host Ubuntu dan dari container:
+
+  ```bash
+  timeout 5 bash -c '</dev/tcp/192.168.141.111/554' && echo reachable || echo blocked
+  docker compose exec mediamtx sh -c 'nc -zvw5 192.168.141.111 554'
+  ```
+
+  Jika gagal, periksa route/VLAN, gateway, ACL/firewall antar `10.8.140.67` dan subnet
+  kamera, IP/path RTSP, serta username/password. Container menggunakan jaringan host
+  sebagai jalur keluar, sehingga host Ubuntu harus dapat menjangkau kamera terlebih dahulu.
+
+- **`stream doesn't contain any supported codec`**: sumber dapat dijangkau, tetapi profile
+  kamera tidak menyediakan codec yang dapat diteruskan ke WebRTC browser. Ubah substream
+  kamera/NVR ke **H.264** (bukan H.265), nonaktifkan Smart Codec/Zipstream bila perlu,
+  gunakan audio AAC/Opus/G.711 atau nonaktifkan audio, lalu gunakan URL profile substream.
+
+- **`peer connection closed`**: negosiasi HTTP player berhasil tetapi media WebRTC tidak
+  mencapai browser. Pastikan `.env` berisi `SERVER_LAN_IP=10.8.140.67`, port TCP 8889 dan
+  UDP/TCP 8189 diizinkan pada UFW serta firewall jaringan, kemudian rebuild container.
+
+Ambil log saat satu stream dibuka agar alasan detail terlihat:
+
+```bash
+docker compose logs -f --tail=100 mediamtx
 ```
 
 Kemudian buka dari browser client:
