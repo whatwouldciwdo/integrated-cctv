@@ -88,7 +88,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DE
 await query(`INSERT INTO roles (name, can_manage_users, can_manage_cameras, can_view_all) VALUES
   ('Administrator', TRUE, TRUE, TRUE), ('Supervisor', FALSE, FALSE, TRUE), ('Viewer', FALSE, FALSE, FALSE)
   ON CONFLICT (name) DO NOTHING`)
-await query(`INSERT INTO departments (name, description) VALUES ('Keamanan', 'Tim keamanan kantor') ON CONFLICT (name) DO NOTHING`)
+await query(`INSERT INTO departments (name, description) VALUES
+  ('Keamanan', 'Tim keamanan kantor'),
+  ('Operasi', 'Bidang Operasi'),
+  ('Engineering', 'Bidang Engineering'),
+  ('Pemeliharaan', 'Bidang Pemeliharaan')
+  ON CONFLICT (name) DO NOTHING`)
 
 const admin = await one('SELECT id FROM users WHERE username = $1', [config.adminUsername])
 if (!admin) {

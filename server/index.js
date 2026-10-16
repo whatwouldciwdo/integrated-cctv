@@ -225,6 +225,13 @@ async function api(req, res, url) {
     const result = await one('INSERT INTO users(username,full_name,password_hash,role_id,department_id) VALUES($1,$2,$3,$4,$5) RETURNING id', [clean(v.username), clean(v.full_name), hashPassword(v.password), Number(v.role_id), v.department_id || null])
     await audit(user.id, 'USER_CREATED', String(result.id)); return json(res, 201, { id: Number(result.id) })
   }
+  if (req.method === 'POST' && url.pathname === '/api/admin/departments') {
+    if (!user.can_manage_users && !user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })
+    const v = await body(req); const name = clean(v.name)
+    if (!name) return json(res, 400, { error: 'Nama bidang wajib diisi' })
+    const result = await one('INSERT INTO departments(name, description) VALUES($1, $2) ON CONFLICT (name) DO UPDATE SET description=EXCLUDED.description RETURNING id', [name, clean(v.description || '')])
+    await audit(user.id, 'DEPARTMENT_CREATED', name); return json(res, 201, { id: Number(result.id), name })
+  }
   if (req.method === 'PUT' && url.pathname.match(/^\/api\/admin\/roles\/\d+\/cameras$/)) {
     if (!user.can_manage_users) return json(res, 403, { error: 'Akses ditolak' })
     const roleId = Number(url.pathname.split('/')[4]); const v = await body(req); const ids = [...new Set((v.camera_ids || []).map(Number).filter(Number.isInteger))]
