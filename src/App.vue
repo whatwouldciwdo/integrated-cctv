@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 
 const me = ref(null), cameras = ref([]), catalog = reactive({ cameras: [], users: [], roles: [], departments: [] })
 const loading = ref(true), notice = ref(''), error = ref(''), page = ref('dashboard'), grid = ref(9), offset = ref(0), search = ref(''), selectedDepartment = ref('')
@@ -21,6 +21,49 @@ function openCameraPlayback(cameraId) {
   resetPlaybackRange()
   page.value = 'playback'
   findRecordings()
+}
+
+const isFullscreen = ref(false)
+
+async function toggleFullscreen() {
+  if (page.value !== 'dashboard') page.value = 'dashboard'
+  try {
+    if (!document.fullscreenElement) {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen()
+      }
+      isFullscreen.value = true
+    } else {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen()
+      }
+      isFullscreen.value = false
+    }
+  } catch {
+    isFullscreen.value = !isFullscreen.value
+  }
+}
+
+function handleFullscreenChange() {
+  const isApiFs = Boolean(document.fullscreenElement)
+  const isScreenFs = window.innerHeight >= screen.height - 4 && window.innerWidth >= screen.width - 4
+  const isMediaFs = window.matchMedia?.('(display-mode: fullscreen)')?.matches ?? false
+  isFullscreen.value = isApiFs || isScreenFs || isMediaFs
+}
+
+function handleKeydown(e) {
+  if (e.key === 'F11') {
+    e.preventDefault()
+    toggleFullscreen()
+  } else if (e.key === 'Escape' && isFullscreen.value) {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+    }
+    isFullscreen.value = false
+  } else if (isFullscreen.value && page.value === 'dashboard') {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') next(1)
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') next(-1)
+  }
 }
 
 function localDateTime(date) {
@@ -144,7 +187,18 @@ function durationLabel(item) {
   const hours = Math.floor(seconds / 3600), minutes = Math.floor((seconds % 3600) / 60)
   return `${hours ? `${hours} jam ` : ''}${minutes} menit`
 }
-onMounted(bootstrap)
+onMounted(() => {
+  bootstrap()
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
+  window.addEventListener('resize', handleFullscreenChange)
+  window.addEventListener('keydown', handleKeydown)
+  handleFullscreenChange()
+})
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  window.removeEventListener('resize', handleFullscreenChange)
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
@@ -153,7 +207,7 @@ onMounted(bootstrap)
     <section class="login-brand"><div class="logo large">SC</div><p class="eyebrow">INTEGRATED SURVEILLANCE</p><h1>Satu pandangan.<br><span>Kontrol menyeluruh.</span></h1><p>Kelola akses kamera lintas brand dan bidang dari satu pusat kendali internal.</p><div class="feature-row"><span>● LAN ONLY</span><span>● ROLE BASED</span><span>● LOW LATENCY</span></div></section>
     <form class="login-card" @submit.prevent="login"><p class="eyebrow">AKSES TERBATAS</p><h2>Masuk ke dashboard</h2><p>Gunakan akun bidang yang telah diberikan administrator.</p><label>Username<input v-model="credentials.username" autocomplete="username" required></label><label>Password<input v-model="credentials.password" type="password" autocomplete="current-password" required autofocus></label><button class="primary">Masuk <span>→</span></button><small>Default awal: admin / password dari environment server</small></form>
   </main>
-  <div v-else class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+  <div v-else class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed, 'fullscreen-mode': isFullscreen }">
     <aside :class="{ collapsed: sidebarCollapsed }">
       <div class="brand">
         <div class="brand-info">
@@ -198,7 +252,11 @@ onMounted(bootstrap)
       <header><div><p class="eyebrow">PUSAT KENDALI INTERNAL</p><h1>{{ page==='dashboard' ? 'Live Monitor' : page==='playback' ? 'Playback Rekaman' : 'Management' }}</h1></div><div class="user"><div class="avatar">{{ me.full_name.slice(0,2).toUpperCase() }}</div><div><b>{{ me.full_name }}</b><small>{{ me.role }}</small></div><button title="Keluar" @click="logout">↪</button></div></header>
       <div v-if="notice" class="toast success">{{ notice }}</div><div v-if="error" class="toast danger">{{ error }}</div>
       <template v-if="page==='dashboard'">
-        <div class="toolbar">
+        <div class="toolbar" :class="{ 'in-fullscreen': isFullscreen }">
+          <div v-if="isFullscreen" class="fullscreen-brand-pill">
+            <div class="logo compact">SC</div>
+            <span>SENTRA LIVE</span>
+          </div>
           <div class="search">⌕<input v-model="search" placeholder="Cari nama, lokasi, bidang…"></div>
           <select v-if="availableDepartments.length" v-model="selectedDepartment" class="filter-select" @change="offset = 0">
             <option value="">Semua Bidang</option>
@@ -206,6 +264,21 @@ onMounted(bootstrap)
           </select>
           <div class="segmented"><button v-for="n in [1,4,9,16,32]" :class="{active:grid===n}" @click="setGrid(n)">{{n}}</button></div>
           <button class="ghost" @click="loadCameras">↻ Refresh</button>
+          <div v-if="isFullscreen && pages > 1" class="fullscreen-page-controls">
+            <button :disabled="currentPage===1" title="Halaman sebelumnya" @click="next(-1)">←</button>
+            <span>{{currentPage}} / {{pages}}</span>
+            <button :disabled="currentPage===pages" title="Halaman berikutnya" @click="next(1)">→</button>
+          </div>
+          <button
+            type="button"
+            class="fullscreen-btn"
+            :class="{ active: isFullscreen }"
+            :title="isFullscreen ? 'Keluar dari layar penuh (Esc / F11)' : 'Tampilkan hanya kamera di layar penuh (F11)'"
+            @click="toggleFullscreen"
+          >
+            <span>{{ isFullscreen ? '✕' : '⛶' }}</span>
+            <span>{{ isFullscreen ? 'Keluar Fullscreen' : 'Layar Penuh' }}</span>
+          </button>
         </div>
         <div v-if="!visible.length" class="empty"><b>Belum ada kamera untuk akun ini</b><p>Administrator perlu menambahkan kamera dan memberikan akses ke role Anda.</p></div>
         <div v-else class="camera-grid" :class="`grid-${grid}`">
