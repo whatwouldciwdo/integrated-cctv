@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 
 const me = ref(null), cameras = ref([]), catalog = reactive({ cameras: [], users: [], roles: [], departments: [] })
-const loading = ref(true), notice = ref(''), error = ref(''), page = ref('dashboard'), grid = ref(9), offset = ref(0), search = ref(''), selectedDepartment = ref('')
+const loading = ref(true), notice = ref(''), error = ref(''), page = ref('dashboard'), grid = ref(16), offset = ref(0), search = ref(''), selectedDepartment = ref('')
 const credentials = reactive({ username: 'admin', password: '' })
 const cameraForm = reactive({ name: '', location: '', brand: '', stream_path: '', department_id: '', rtsp_source: '', nvr_channel: '' })
 const editingCameraId = ref(null)
