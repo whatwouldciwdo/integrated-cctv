@@ -276,7 +276,7 @@ onUnmounted(() => {
         </div>
       </div>
     </aside>
-    <section class="workspace">
+    <section class="workspace" :class="[`page-${page}`, { 'in-fullscreen': isFullscreen }]">
       <header><div><p class="eyebrow">PUSAT KENDALI INTERNAL</p><h1>{{ page==='dashboard' ? 'Live Monitor' : page==='playback' ? 'Playback Rekaman' : 'Management' }}</h1></div><div class="user"><div class="avatar">{{ me.full_name.slice(0,2).toUpperCase() }}</div><div><b>{{ me.full_name }}</b><small>{{ me.role }}</small></div><button title="Keluar" @click="logout">↪</button></div></header>
       <div v-if="notice" class="toast success">{{ notice }}</div><div v-if="error" class="toast danger">{{ error }}</div>
       <template v-if="page==='dashboard'">
