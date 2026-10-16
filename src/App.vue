@@ -25,16 +25,36 @@ function openCameraPlayback(cameraId) {
 
 const isFullscreen = ref(false)
 
+function syncFullscreenClasses(active) {
+  if (typeof document === 'undefined') return
+  if (active) {
+    document.documentElement.classList.add('fullscreen-mode')
+    document.body.classList.add('fullscreen-mode')
+  } else {
+    document.documentElement.classList.remove('fullscreen-mode')
+    document.body.classList.remove('fullscreen-mode')
+  }
+}
+
+function handleFullscreenChange() {
+  const isApiFs = Boolean(document.fullscreenElement)
+  const isScreenFs = Math.abs(window.innerHeight - screen.height) <= 6 && Math.abs(window.innerWidth - screen.width) <= 6
+  const isMediaFs = window.matchMedia?.('(display-mode: fullscreen)')?.matches ?? false
+  const active = isApiFs || isScreenFs || isMediaFs
+  isFullscreen.value = active
+  syncFullscreenClasses(active)
+}
+
 async function toggleFullscreen() {
   if (page.value !== 'dashboard') page.value = 'dashboard'
   try {
-    if (!document.fullscreenElement) {
+    if (!document.fullscreenElement && !isFullscreen.value) {
       if (document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen()
       }
       isFullscreen.value = true
     } else {
-      if (document.exitFullscreen) {
+      if (document.fullscreenElement && document.exitFullscreen) {
         await document.exitFullscreen()
       }
       isFullscreen.value = false
@@ -42,24 +62,22 @@ async function toggleFullscreen() {
   } catch {
     isFullscreen.value = !isFullscreen.value
   }
-}
-
-function handleFullscreenChange() {
-  const isApiFs = Boolean(document.fullscreenElement)
-  const isScreenFs = window.innerHeight >= screen.height - 4 && window.innerWidth >= screen.width - 4
-  const isMediaFs = window.matchMedia?.('(display-mode: fullscreen)')?.matches ?? false
-  isFullscreen.value = isApiFs || isScreenFs || isMediaFs
+  syncFullscreenClasses(isFullscreen.value)
+  setTimeout(handleFullscreenChange, 100)
 }
 
 function handleKeydown(e) {
   if (e.key === 'F11') {
-    e.preventDefault()
-    toggleFullscreen()
-  } else if (e.key === 'Escape' && isFullscreen.value) {
+    // Let browser perform native F11 and sync state
+    setTimeout(handleFullscreenChange, 120)
+    setTimeout(handleFullscreenChange, 400)
+  } else if (e.key === 'Escape') {
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {})
     }
     isFullscreen.value = false
+    syncFullscreenClasses(false)
+    setTimeout(handleFullscreenChange, 120)
   } else if (isFullscreen.value && page.value === 'dashboard') {
     if (e.key === 'ArrowRight' || e.key === 'PageDown') next(1)
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') next(-1)
@@ -187,17 +205,27 @@ function durationLabel(item) {
   const hours = Math.floor(seconds / 3600), minutes = Math.floor((seconds % 3600) / 60)
   return `${hours ? `${hours} jam ` : ''}${minutes} menit`
 }
+const mql = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(display-mode: fullscreen)') : null
 onMounted(() => {
   bootstrap()
   document.addEventListener('fullscreenchange', handleFullscreenChange)
   window.addEventListener('resize', handleFullscreenChange)
   window.addEventListener('keydown', handleKeydown)
+  if (mql) {
+    if (mql.addEventListener) mql.addEventListener('change', handleFullscreenChange)
+    else if (mql.addListener) mql.addListener(handleFullscreenChange)
+  }
   handleFullscreenChange()
 })
 onUnmounted(() => {
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('resize', handleFullscreenChange)
   window.removeEventListener('keydown', handleKeydown)
+  if (mql) {
+    if (mql.removeEventListener) mql.removeEventListener('change', handleFullscreenChange)
+    else if (mql.removeListener) mql.removeListener(handleFullscreenChange)
+  }
+  syncFullscreenClasses(false)
 })
 </script>
 
@@ -253,10 +281,6 @@ onUnmounted(() => {
       <div v-if="notice" class="toast success">{{ notice }}</div><div v-if="error" class="toast danger">{{ error }}</div>
       <template v-if="page==='dashboard'">
         <div class="toolbar" :class="{ 'in-fullscreen': isFullscreen }">
-          <div v-if="isFullscreen" class="fullscreen-brand-pill">
-            <div class="logo compact">SC</div>
-            <span>SENTRA LIVE</span>
-          </div>
           <div class="search">⌕<input v-model="search" placeholder="Cari nama, lokasi, bidang…"></div>
           <select v-if="availableDepartments.length" v-model="selectedDepartment" class="filter-select" @change="offset = 0">
             <option value="">Semua Bidang</option>
