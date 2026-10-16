@@ -10,6 +10,18 @@ const userForm = reactive({ username: '', full_name: '', password: '', role_id: 
 const deptForm = reactive({ name: '', description: '' })
 const permissionRole = ref(''), permissionIds = ref([])
 const playback = reactive({ camera_id: '', start: '', end: '', recordings: [], player_url: '', loading: false, active: null })
+const sidebarCollapsed = ref(typeof localStorage !== 'undefined' && localStorage.getItem('sidebar_collapsed') === 'true')
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  try { localStorage.setItem('sidebar_collapsed', sidebarCollapsed.value ? 'true' : 'false') } catch {}
+}
+const nvrConnectedCount = computed(() => catalog.cameras.filter(c => c.nvr_channel).length)
+function openCameraPlayback(cameraId) {
+  playback.camera_id = cameraId
+  resetPlaybackRange()
+  page.value = 'playback'
+  findRecordings()
+}
 
 function localDateTime(date) {
   const offset = date.getTimezoneOffset() * 60_000
@@ -141,8 +153,47 @@ onMounted(bootstrap)
     <section class="login-brand"><div class="logo large">SC</div><p class="eyebrow">INTEGRATED SURVEILLANCE</p><h1>Satu pandangan.<br><span>Kontrol menyeluruh.</span></h1><p>Kelola akses kamera lintas brand dan bidang dari satu pusat kendali internal.</p><div class="feature-row"><span>● LAN ONLY</span><span>● ROLE BASED</span><span>● LOW LATENCY</span></div></section>
     <form class="login-card" @submit.prevent="login"><p class="eyebrow">AKSES TERBATAS</p><h2>Masuk ke dashboard</h2><p>Gunakan akun bidang yang telah diberikan administrator.</p><label>Username<input v-model="credentials.username" autocomplete="username" required></label><label>Password<input v-model="credentials.password" type="password" autocomplete="current-password" required autofocus></label><button class="primary">Masuk <span>→</span></button><small>Default awal: admin / password dari environment server</small></form>
   </main>
-  <div v-else class="app-shell">
-    <aside><div class="brand"><div class="logo">SC</div><div><b>SENTRA</b><small>CCTV CONTROL</small></div></div><nav><button :class="{active:page==='dashboard'}" @click="page='dashboard'">▦ <span>Live Monitor</span></button><button :class="{active:page==='playback'}" @click="page='playback'">▶ <span>Playback</span></button><button v-if="isAdmin" :class="{active:page==='admin'}" @click="page='admin';loadCatalog()">⚙ <span>Management</span></button></nav><div class="aside-status"><i></i><div><b>System Online</b><small>{{ cameras.length }} kamera tersedia</small></div></div></aside>
+  <div v-else class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+    <aside :class="{ collapsed: sidebarCollapsed }">
+      <div class="brand">
+        <div class="brand-info">
+          <div class="logo">SC</div>
+          <div v-show="!sidebarCollapsed" class="brand-text">
+            <b>SENTRA</b>
+            <small>CCTV CONTROL</small>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="sidebar-toggle"
+          :title="sidebarCollapsed ? 'Perluas sidebar (Buka menu)' : 'Minimize sidebar (Perkecil)'"
+          @click="toggleSidebar"
+        >
+          {{ sidebarCollapsed ? '»' : '«' }}
+        </button>
+      </div>
+      <nav>
+        <button :class="{active:page==='dashboard'}" :title="sidebarCollapsed ? 'Live Monitor' : ''" @click="page='dashboard'">
+          <span class="nav-icon">▦</span>
+          <span v-show="!sidebarCollapsed">Live Monitor</span>
+        </button>
+        <button :class="{active:page==='playback'}" :title="sidebarCollapsed ? 'Playback' : ''" @click="page='playback'">
+          <span class="nav-icon">▶</span>
+          <span v-show="!sidebarCollapsed">Playback</span>
+        </button>
+        <button v-if="isAdmin" :class="{active:page==='admin'}" :title="sidebarCollapsed ? 'Management' : ''" @click="page='admin';loadCatalog()">
+          <span class="nav-icon">⚙</span>
+          <span v-show="!sidebarCollapsed">Management</span>
+        </button>
+      </nav>
+      <div class="aside-status" :title="sidebarCollapsed ? `System Online · ${cameras.length} kamera tersedia` : ''">
+        <i></i>
+        <div v-show="!sidebarCollapsed">
+          <b>System Online</b>
+          <small>{{ cameras.length }} kamera tersedia</small>
+        </div>
+      </div>
+    </aside>
     <section class="workspace">
       <header><div><p class="eyebrow">PUSAT KENDALI INTERNAL</p><h1>{{ page==='dashboard' ? 'Live Monitor' : page==='playback' ? 'Playback Rekaman' : 'Management' }}</h1></div><div class="user"><div class="avatar">{{ me.full_name.slice(0,2).toUpperCase() }}</div><div><b>{{ me.full_name }}</b><small>{{ me.role }}</small></div><button title="Keluar" @click="logout">↪</button></div></header>
       <div v-if="notice" class="toast success">{{ notice }}</div><div v-if="error" class="toast danger">{{ error }}</div>
@@ -206,7 +257,68 @@ onMounted(bootstrap)
           <section v-if="me.can_manage_cameras" class="panel"><div class="panel-title"><div><p class="eyebrow">INVENTARIS</p><h2>{{ editingCameraId === null ? 'Tambah kamera' : 'Edit kamera' }}</h2></div><button v-if="editingCameraId !== null" class="ghost compact" type="button" @click="resetCameraForm">Batal edit</button></div><form @submit.prevent="saveCamera" class="form-grid"><label>Nama<input v-model="cameraForm.name" required placeholder="Gerbang Utama"></label><label>Stream path<input v-model="cameraForm.stream_path" required pattern="[A-Za-z0-9._~-]+" title="Gunakan huruf, angka, titik, underscore, tilde, atau tanda hubung" placeholder="gerbang-utama"></label><label>Lokasi<input v-model="cameraForm.location" placeholder="Gedung A"></label><label>Brand<input v-model="cameraForm.brand" placeholder="Hikvision"></label><label>Bidang<select v-model="cameraForm.department_id"><option value="">Umum</option><option v-for="d in catalog.departments" :value="d.id">{{d.name}}</option></select></label><label>Channel NVR <small>ID InputProxy Hikvision (1–128) untuk playback.</small><input v-model="cameraForm.nvr_channel" type="number" min="1" max="128" placeholder="7"></label><label class="full-field">RTSP Source URL <small v-if="editingCameraId !== null">Kosongkan untuk mempertahankan URL tersimpan.</small><input v-model="cameraForm.rtsp_source" type="password" autocomplete="new-password" placeholder="rtsp://viewer:password@192.168.1.10:554/substream"></label><button class="primary">{{ editingCameraId === null ? '+ Tambah kamera' : 'Simpan perubahan' }}</button></form></section>
           <section v-if="me.can_manage_users" class="panel"><p class="eyebrow">IDENTITAS</p><h2>Buat account</h2><form @submit.prevent="addUser" class="form-grid"><label>Username<input v-model="userForm.username" required></label><label>Nama lengkap<input v-model="userForm.full_name" required></label><label>Password<input v-model="userForm.password" type="password" minlength="8" required></label><label>Role<select v-model="userForm.role_id" required><option value="" disabled>Pilih role</option><option v-for="r in catalog.roles" :value="r.id">{{r.name}}</option></select></label><label>Bidang<select v-model="userForm.department_id"><option value="">Tanpa bidang</option><option v-for="d in catalog.departments" :value="d.id">{{d.name}}</option></select></label><button class="primary">+ Buat account</button></form></section>
           <section v-if="me.can_manage_users" class="panel wide"><p class="eyebrow">OTORISASI</p><h2>Pembagian kamera per role</h2><div class="permission-head"><select v-model="permissionRole" @change="loadPermissions"><option value="">Pilih role</option><option v-for="r in catalog.roles.filter(x=>!x.can_view_all)" :value="r.id">{{r.name}}</option></select><button class="primary" :disabled="!permissionRole" @click="savePermissions">Simpan akses</button></div><div v-if="permissionRole" class="checks"><label v-for="c in catalog.cameras"><input v-model="permissionIds" type="checkbox" :value="c.id"><span><b>{{c.name}}</b><small>{{c.location||'Tanpa lokasi'}}</small></span></label></div><p v-else class="muted">Pilih role non-administrator untuk mengatur kamera yang dapat dilihat.</p></section>
-          <section class="panel wide"><div class="panel-title"><div><p class="eyebrow">DAFTAR ASET</p><h2>Kamera terdaftar</h2></div><button v-if="me.can_manage_cameras" class="ghost compact" type="button" @click="syncNvrChannels">↻ Cocokkan IP dari NVR</button></div><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Path</th><th>NVR</th><th>Sumber</th><th>Lokasi</th><th>Bidang</th><th></th></tr></thead><tbody><tr v-for="c in catalog.cameras"><td><b>{{c.name}}</b><small>{{c.brand||'Generic'}}</small></td><td><code>{{c.stream_path}}</code></td><td>{{c.nvr_channel ? `CH ${c.nvr_channel}` : '—'}}</td><td><span class="source-status" :class="{managed:c.rtsp_configured}">{{c.rtsp_configured?'Database':'YAML / eksternal'}}</span></td><td>{{c.location||'—'}}</td><td>{{c.department||'Umum'}}</td><td><div v-if="me.can_manage_cameras" class="row-actions"><button class="edit-text" @click="editCamera(c)">Edit</button><button class="danger-text" @click="removeCamera(c.id)">Hapus</button></div></td></tr></tbody></table></div></section>
+          <section class="panel wide">
+            <div class="panel-title">
+              <div><p class="eyebrow">DAFTAR ASET</p><h2>Kamera terdaftar</h2></div>
+              <div class="panel-actions">
+                <span class="nvr-stat-pill" :title="`${nvrConnectedCount} dari ${catalog.cameras.length} kamera sudah terhubung ke NVR untuk playback`">
+                  <i class="nvr-dot" :class="nvrConnectedCount > 0 ? 'online' : 'offline'"></i>
+                  <span>{{ nvrConnectedCount }} / {{ catalog.cameras.length }} NVR Terhubung</span>
+                </span>
+                <button v-if="me.can_manage_cameras" class="ghost compact" type="button" @click="syncNvrChannels">↻ Cocokkan IP dari NVR</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nama</th>
+                    <th>Path</th>
+                    <th>NVR Playback</th>
+                    <th>Sumber</th>
+                    <th>Lokasi</th>
+                    <th>Bidang</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in catalog.cameras" :key="c.id">
+                    <td><b>{{c.name}}</b><small>{{c.brand||'Generic'}}</small></td>
+                    <td><code>{{c.stream_path}}</code></td>
+                    <td>
+                      <span
+                        v-if="c.nvr_channel"
+                        class="nvr-status connected"
+                        :title="`Terhubung ke NVR InputProxy CH ${c.nvr_channel} untuk playback rekaman. Klik untuk buka playback.`"
+                        @click="openCameraPlayback(c.id)"
+                      >
+                        <i class="nvr-dot online"></i>
+                        <b>CH {{c.nvr_channel}}</b>
+                        <small>Terhubung</small>
+                      </span>
+                      <span
+                        v-else
+                        class="nvr-status unmapped"
+                        title="Belum terhubung ke NVR. Edit kamera untuk mengisi Channel NVR (1–128) atau klik 'Cocokkan IP dari NVR'"
+                      >
+                        <i class="nvr-dot offline"></i>
+                        <small>Belum terhubung</small>
+                      </span>
+                    </td>
+                    <td><span class="source-status" :class="{managed:c.rtsp_configured}">{{c.rtsp_configured?'Database':'YAML / eksternal'}}</span></td>
+                    <td>{{c.location||'—'}}</td>
+                    <td>{{c.department||'Umum'}}</td>
+                    <td>
+                      <div v-if="me.can_manage_cameras" class="row-actions">
+                        <button class="edit-text" @click="editCamera(c)">Edit</button>
+                        <button class="danger-text" @click="removeCamera(c.id)">Hapus</button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
       </template>
     </section>
