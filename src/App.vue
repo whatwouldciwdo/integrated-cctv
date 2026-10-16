@@ -140,8 +140,80 @@ const filtered = computed(() => {
 const visible = computed(() => filtered.value.slice(offset.value, offset.value + grid.value))
 const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / grid.value)))
 const currentPage = computed(() => Math.floor(offset.value / grid.value) + 1)
-function setGrid(value) { grid.value = value; offset.value = 0 }
-function next(delta) { offset.value = Math.min(Math.max(0, offset.value + delta * grid.value), Math.max(0, (pages.value - 1) * grid.value)) }
+const savedInterval = typeof localStorage !== 'undefined' ? Number(localStorage.getItem('cctv_autotour_sec')) : 10
+const autoTourInterval = ref(savedInterval >= 2 ? savedInterval : 10)
+const autoTourActive = ref(false)
+let autoTourTimer = null
+
+function nextLoop(delta = 1) {
+  if (pages.value <= 1) return
+  let nextOffset = offset.value + delta * grid.value
+  const maxOffset = (pages.value - 1) * grid.value
+  if (nextOffset > maxOffset) {
+    nextOffset = 0
+  } else if (nextOffset < 0) {
+    nextOffset = maxOffset
+  }
+  offset.value = nextOffset
+  if (autoTourActive.value) {
+    restartAutoTourTimer()
+  }
+}
+
+function startAutoTour() {
+  stopAutoTour()
+  autoTourActive.value = true
+  restartAutoTourTimer()
+}
+
+function restartAutoTourTimer() {
+  if (autoTourTimer) clearInterval(autoTourTimer)
+  const sec = Math.max(2, Math.round(Number(autoTourInterval.value) || 10))
+  autoTourTimer = setInterval(() => {
+    if (pages.value > 1 && page.value === 'dashboard') {
+      nextLoop(1)
+    }
+  }, sec * 1000)
+}
+
+function stopAutoTour() {
+  autoTourActive.value = false
+  if (autoTourTimer) {
+    clearInterval(autoTourTimer)
+    autoTourTimer = null
+  }
+}
+
+function toggleAutoTour() {
+  if (autoTourActive.value) {
+    stopAutoTour()
+  } else {
+    startAutoTour()
+  }
+}
+
+function onIntervalChange() {
+  let val = Math.round(Number(autoTourInterval.value))
+  if (isNaN(val) || val < 2) val = 5
+  if (val > 3600) val = 3600
+  autoTourInterval.value = val
+  try { localStorage.setItem('cctv_autotour_sec', String(val)) } catch {}
+  if (autoTourActive.value) {
+    restartAutoTourTimer()
+  }
+}
+
+function setGrid(value) {
+  grid.value = value
+  offset.value = 0
+  if (autoTourActive.value) {
+    restartAutoTourTimer()
+  }
+}
+
+function next(delta) {
+  nextLoop(delta)
+}
 
 function resetCameraForm() {
   Object.keys(cameraForm).forEach(k => cameraForm[k] = '')
@@ -218,6 +290,7 @@ onMounted(() => {
   handleFullscreenChange()
 })
 onUnmounted(() => {
+  stopAutoTour()
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('resize', handleFullscreenChange)
   window.removeEventListener('keydown', handleKeydown)
@@ -288,10 +361,35 @@ onUnmounted(() => {
           </select>
           <div class="segmented"><button v-for="n in [1,4,9,16,32]" :class="{active:grid===n}" @click="setGrid(n)">{{n}}</button></div>
           <button class="ghost" @click="loadCameras">↻ Refresh</button>
-          <div v-if="isFullscreen && pages > 1" class="fullscreen-page-controls">
-            <button :disabled="currentPage===1" title="Halaman sebelumnya" @click="next(-1)">←</button>
-            <span>{{currentPage}} / {{pages}}</span>
-            <button :disabled="currentPage===pages" title="Halaman berikutnya" @click="next(1)">→</button>
+          <div v-if="pages > 1" class="fullscreen-page-controls">
+            <button type="button" title="Halaman sebelumnya (looping)" @click="nextLoop(-1)">←</button>
+            <span class="page-count">{{ currentPage }} / {{ pages }}</span>
+            <button type="button" title="Halaman berikutnya (looping)" @click="nextLoop(1)">→</button>
+            <span class="tour-sep"></span>
+            <button
+              type="button"
+              class="tour-btn"
+              :class="{ active: autoTourActive }"
+              :title="autoTourActive ? 'Klik untuk hentikan auto tour halaman' : 'Klik untuk mulai auto tour halaman'"
+              @click="toggleAutoTour"
+            >
+              <span v-if="autoTourActive" class="tour-dot"></span>
+              <span>{{ autoTourActive ? '⏸ Stop' : '▶ Auto' }}</span>
+            </button>
+            <div class="tour-input-box" title="Jeda waktu ganti halaman (detik)">
+              <input
+                type="number"
+                v-model.number="autoTourInterval"
+                min="2"
+                max="3600"
+                class="tour-input"
+                title="Berapa detik ganti halaman"
+                @change="onIntervalChange"
+                @keyup.enter="onIntervalChange"
+                @click.stop
+              />
+              <span class="tour-unit">dtk</span>
+            </div>
           </div>
           <button
             type="button"

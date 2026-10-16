@@ -72,9 +72,21 @@
 .fullscreen-btn:hover{background:#132a3d;color:var(--cyan);border-color:var(--cyan)}
 .fullscreen-btn.active{background:#18364c;color:var(--cyan);border-color:var(--cyan)}
 .fullscreen-brand-pill{display:none}
-.fullscreen-page-controls{display:none}
-.fullscreen-page-controls button{border:0;background:none;color:var(--cyan);padding:4px 8px;font-weight:700;cursor:pointer;border-radius:4px}
+.fullscreen-page-controls{display:inline-flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);padding:2px 8px;border-radius:8px;font-size:11px;color:var(--muted);height:38px;box-sizing:border-box}
+.fullscreen-page-controls button{border:0;background:none;color:var(--cyan);padding:4px 6px;font-weight:700;cursor:pointer;border-radius:5px;display:inline-flex;align-items:center;gap:4px;font-size:12px;transition:all .15s}
+.fullscreen-page-controls button:hover{background:#142a3d}
 .fullscreen-page-controls button:disabled{opacity:.35;cursor:default}
+.fullscreen-page-controls .page-count{font-weight:600;color:#cfddec;padding:0 3px;font-size:11px;white-space:nowrap;letter-spacing:.03em}
+.tour-sep{width:1px;height:16px;background:var(--line);margin:0 4px}
+.tour-btn{background:#0a1a2c!important;border:1px solid #1a364e!important;color:#a2bdd8!important;padding:3px 8px!important;border-radius:6px!important;font-size:11px!important;font-weight:600!important;cursor:pointer;display:inline-flex!important;align-items:center;gap:4px;white-space:nowrap}
+.tour-btn:hover{background:#11283d!important;border-color:var(--cyan)!important;color:var(--cyan)!important}
+.tour-btn.active{background:#0e3038!important;border-color:#26b5ab!important;color:var(--cyan)!important;box-shadow:0 0 10px rgba(41,213,203,0.25)}
+.tour-dot{width:6px;height:6px;border-radius:50%;background:#32d398;box-shadow:0 0 6px #32d398;display:inline-block;animation:pulse-dot 1.5s infinite}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}
+.tour-input-box{display:inline-flex;align-items:center;gap:3px;background:#050e18;border:1px solid var(--line);padding:2px 6px;border-radius:6px;height:26px}
+.tour-input{width:34px;border:0;background:transparent;color:#fff;font-weight:700;font-size:11px;text-align:center;padding:0;outline:none;-moz-appearance:textfield}
+.tour-input::-webkit-outer-spin-button,.tour-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.tour-unit{font-size:10px;color:var(--muted);user-select:none}
 @media (display-mode: fullscreen){
   aside{display:none!important}
   .app-shell{grid-template-columns:1fr!important;height:100vh!important;max-height:100vh!important;overflow:hidden!important}
@@ -82,7 +94,7 @@
   .workspace>header,.aside-status,.toolbar .search,.toolbar .filter-select,.toolbar>button.ghost,.toolbar .fullscreen-btn,.fullscreen-brand-pill,.pagination{display:none!important}
   .toolbar{margin:2px 0 4px!important;justify-content:center!important;gap:8px!important;flex-wrap:nowrap!important;width:100%!important;flex-shrink:0!important}
   .toolbar .segmented{display:flex!important}
-  .fullscreen-page-controls{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);padding:2px 8px;border-radius:8px;font-size:11px;color:var(--muted)}
+  .fullscreen-page-controls{display:inline-flex!important;align-items:center!important;gap:4px!important;background:var(--surface)!important;border:1px solid var(--line)!important;padding:2px 8px!important;border-radius:8px!important;font-size:11px!important;color:var(--muted)!important;height:34px!important;box-sizing:border-box!important}
   .camera-grid{flex:1 1 0!important;min-height:0!important;height:calc(100vh - 36px)!important;max-height:calc(100vh - 36px)!important;width:100%!important;overflow:hidden!important}
   .grid-1{grid-template-columns:1fr!important;grid-template-rows:1fr!important;gap:0!important}
   .grid-4{grid-template-columns:repeat(2,1fr)!important;grid-template-rows:repeat(2,1fr)!important;gap:6px!important}
@@ -99,7 +111,7 @@
 .fullscreen-mode .toolbar,:fullscreen .toolbar,body.fullscreen-mode .toolbar{margin:2px 0 4px!important;justify-content:center!important;gap:8px!important;flex-wrap:nowrap!important;width:100%!important;flex-shrink:0!important}
 .fullscreen-mode .toolbar .search,:fullscreen .toolbar .search,body.fullscreen-mode .toolbar .search,.fullscreen-mode .toolbar .filter-select,:fullscreen .toolbar .filter-select,body.fullscreen-mode .toolbar .filter-select,.fullscreen-mode .toolbar>button.ghost,:fullscreen .toolbar>button.ghost,body.fullscreen-mode .toolbar>button.ghost,.fullscreen-mode .toolbar .fullscreen-btn,:fullscreen .toolbar .fullscreen-btn,body.fullscreen-mode .toolbar .fullscreen-btn,.fullscreen-mode .fullscreen-brand-pill,:fullscreen .fullscreen-brand-pill,body.fullscreen-mode .fullscreen-brand-pill{display:none!important}
 .fullscreen-mode .toolbar .segmented,:fullscreen .toolbar .segmented,body.fullscreen-mode .toolbar .segmented{display:flex!important}
-.fullscreen-mode .fullscreen-page-controls,:fullscreen .fullscreen-page-controls,body.fullscreen-mode .fullscreen-page-controls{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);padding:2px 8px;border-radius:8px;font-size:11px;color:var(--muted)}
+.fullscreen-mode .fullscreen-page-controls,:fullscreen .fullscreen-page-controls,body.fullscreen-mode .fullscreen-page-controls{display:inline-flex!important;align-items:center!important;gap:4px!important;background:var(--surface)!important;border:1px solid var(--line)!important;padding:2px 8px!important;border-radius:8px!important;font-size:11px!important;color:var(--muted)!important;height:34px!important;box-sizing:border-box!important}
 .fullscreen-mode .camera-grid,:fullscreen .camera-grid,body.fullscreen-mode .camera-grid{flex:1 1 0!important;min-height:0!important;height:calc(100vh - 36px)!important;max-height:calc(100vh - 36px)!important;width:100%!important;overflow:hidden!important}
 .fullscreen-mode .grid-1,:fullscreen .grid-1,body.fullscreen-mode .grid-1{grid-template-columns:1fr!important;grid-template-rows:1fr!important;gap:0!important}
 .fullscreen-mode .grid-4,:fullscreen .grid-4,body.fullscreen-mode .grid-4{grid-template-columns:repeat(2,1fr)!important;grid-template-rows:repeat(2,1fr)!important;gap:6px!important}
