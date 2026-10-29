@@ -120,11 +120,28 @@ async function api(req, res, url) {
     const camera = await visibleCamera(user, cameraId)
     if (!camera) return json(res, 404, { error: 'Kamera tidak ditemukan atau tidak dapat diakses' })
     if (!camera.nvr_channel) return json(res, 400, { error: 'Channel NVR kamera belum diatur oleh administrator' })
+    const rawScale = Number(v.scale)
+    const scale = Number.isFinite(rawScale) && rawScale > 0 ? Math.max(0.1, Math.min(16, rawScale)) : 1.0
+
+    if (v.previous_stream_path) {
+      const prevPath = String(v.previous_stream_path).trim()
+      if (/^playback-[A-Za-z0-9_-]+$/.test(prevPath)) {
+        clearTimeout(playbackTimers.get(prevPath))
+        playbackTimers.delete(prevPath)
+        deleteMediaPath(prevPath).catch(() => {})
+      }
+    }
+
     const streamPath = `playback-${randomBytes(18).toString('base64url')}`
-    await upsertPlaybackPath(streamPath, playbackRtspUrl(camera.nvr_channel, v.start, v.end))
+    await upsertPlaybackPath(streamPath, playbackRtspUrl(camera.nvr_channel, v.start, v.end), scale)
     expirePlaybackPath(streamPath)
-    await audit(user.id, 'PLAYBACK_STARTED', `${cameraId}:${clean(v.start)}:${clean(v.end)}`)
-    return json(res, 201, { player_url: `${config.mediaBase}/${encodeURIComponent(streamPath)}/`, expires_in_seconds: Math.floor(config.playbackSessionTtlMs / 1000) })
+    await audit(user.id, 'PLAYBACK_STARTED', `${cameraId}:${clean(v.start)}:${clean(v.end)}:scale=${scale}`)
+    return json(res, 201, {
+      player_url: `${config.mediaBase}/${encodeURIComponent(streamPath)}/`,
+      stream_path: streamPath,
+      scale,
+      expires_in_seconds: Math.floor(config.playbackSessionTtlMs / 1000)
+    })
   }
   if (req.method === 'GET' && url.pathname === '/api/admin/catalog') {
     if (!user.can_manage_users && !user.can_manage_cameras) return json(res, 403, { error: 'Akses ditolak' })

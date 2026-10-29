@@ -9,7 +9,16 @@ const editingCameraId = ref(null)
 const userForm = reactive({ username: '', full_name: '', password: '', role_id: '', department_id: '' })
 const deptForm = reactive({ name: '', description: '' })
 const permissionRole = ref(''), permissionIds = ref([])
-const playback = reactive({ camera_id: '', start: '', end: '', recordings: [], player_url: '', loading: false, active: null })
+const playbackSpeeds = [
+  { label: '0.25x', value: 0.25, title: 'Slow motion 0.25x' },
+  { label: '0.5x', value: 0.5, title: 'Slow motion 0.5x' },
+  { label: '1x', value: 1, title: 'Kecepatan normal (1x)' },
+  { label: '2x', value: 2, title: 'Percepatan 2x' },
+  { label: '4x', value: 4, title: 'Percepatan 4x' },
+  { label: '6x', value: 6, title: 'Percepatan 6x' },
+  { label: '8x', value: 8, title: 'Percepatan 8x' },
+]
+const playback = reactive({ camera_id: '', start: '', end: '', recordings: [], player_url: '', stream_path: '', scale: 1, loading: false, changingSpeed: false, active: null })
 const sidebarCollapsed = ref(typeof localStorage !== 'undefined' && localStorage.getItem('sidebar_collapsed') === 'true')
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -254,7 +263,7 @@ async function savePermissions() {
 }
 async function findRecordings() {
   if (!playback.camera_id) return flash('Pilih kamera terlebih dahulu', true)
-  playback.loading = true; playback.player_url = ''; playback.active = null
+  playback.loading = true; playback.player_url = ''; playback.stream_path = ''; playback.active = null
   try {
     const params = new URLSearchParams({ camera_id: playback.camera_id, start: new Date(playback.start).toISOString(), end: new Date(playback.end).toISOString() })
     const data = await request(`/api/playback/recordings?${params}`)
@@ -263,13 +272,51 @@ async function findRecordings() {
   } catch (e) { playback.recordings = []; flash(e.message, true) }
   finally { playback.loading = false }
 }
-async function playRecording(recording) {
+async function playRecording(recording, scale = playback.scale || 1) {
   playback.loading = true
+  playback.scale = scale
   try {
-    const data = await request('/api/playback/session', { method: 'POST', body: JSON.stringify({ camera_id: playback.camera_id, start: recording.start_time, end: recording.end_time }) })
-    playback.player_url = data.player_url; playback.active = recording
+    const data = await request('/api/playback/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        camera_id: playback.camera_id,
+        start: recording.start_time,
+        end: recording.end_time,
+        scale: scale,
+        previous_stream_path: playback.stream_path || undefined
+      })
+    })
+    playback.player_url = data.player_url
+    playback.stream_path = data.stream_path || ''
+    playback.active = recording
   } catch (e) { flash(e.message, true) }
   finally { playback.loading = false }
+}
+async function setPlaybackSpeed(newScale) {
+  if (!playback.active || playback.loading || playback.changingSpeed) return
+  if (playback.scale === newScale) return
+  playback.changingSpeed = true
+  const prevScale = playback.scale
+  playback.scale = newScale
+  try {
+    const data = await request('/api/playback/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        camera_id: playback.camera_id,
+        start: playback.active.start_time,
+        end: playback.active.end_time,
+        scale: newScale,
+        previous_stream_path: playback.stream_path || undefined
+      })
+    })
+    playback.player_url = data.player_url
+    playback.stream_path = data.stream_path || ''
+  } catch (e) {
+    playback.scale = prevScale
+    flash(e.message, true)
+  } finally {
+    playback.changingSpeed = false
+  }
 }
 const dateLabel = value => new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value))
 function durationLabel(item) {
@@ -424,7 +471,52 @@ onUnmounted(() => {
       <template v-else-if="page==='playback'">
         <section class="panel playback-filter"><div><p class="eyebrow">ARSIP NVR</p><h2>Cari rekaman</h2></div><form @submit.prevent="findRecordings" class="playback-form"><label>Kamera<select v-model="playback.camera_id" required><option value="" disabled>Pilih kamera</option><option v-for="c in cameras" :key="c.id" :value="c.id">{{c.name}}{{c.nvr_channel ? ` · CH ${c.nvr_channel}` : ' · belum dipetakan'}}</option></select></label><label>Mulai<input v-model="playback.start" type="datetime-local" required></label><label>Selesai<input v-model="playback.end" type="datetime-local" required></label><button class="primary" :disabled="playback.loading">{{playback.loading?'Memproses…':'⌕ Cari rekaman'}}</button></form></section>
         <div class="playback-layout">
-          <section class="panel playback-viewer"><div v-if="playback.player_url" class="archive-feed"><iframe :key="playback.player_url" :src="playback.player_url" allow="autoplay; fullscreen"></iframe></div><div v-else class="playback-placeholder"><span>▶</span><b>Pilih segmen rekaman</b><small>Hasil pencarian akan tampil di sebelah kanan.</small></div><div v-if="playback.active" class="playing-info"><div><b>{{cameras.find(c=>String(c.id)===String(playback.camera_id))?.name}}</b><small>{{dateLabel(playback.active.start_time)}} — {{dateLabel(playback.active.end_time)}}</small></div><a :href="playback.player_url" target="_blank">Buka penuh ⛶</a></div></section>
+          <section class="panel playback-viewer">
+            <div v-if="playback.player_url" class="archive-feed">
+              <iframe :key="playback.player_url" :src="playback.player_url" allow="autoplay; fullscreen"></iframe>
+            </div>
+            <div v-else class="playback-placeholder">
+              <span>▶</span>
+              <b>Pilih segmen rekaman</b>
+              <small>Hasil pencarian akan tampil di sebelah kanan.</small>
+            </div>
+            <div v-if="playback.active" class="playback-speed-bar">
+              <div class="speed-label">
+                <svg class="speed-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span>Kecepatan:</span>
+              </div>
+              <div class="speed-buttons">
+                <button
+                  v-for="s in playbackSpeeds"
+                  :key="s.value"
+                  type="button"
+                  class="speed-btn"
+                  :class="{ active: playback.scale === s.value }"
+                  :disabled="playback.changingSpeed || playback.loading"
+                  :title="s.title"
+                  @click="setPlaybackSpeed(s.value)"
+                >
+                  {{ s.label }}
+                </button>
+              </div>
+              <span v-if="playback.changingSpeed" class="speed-status">Mengubah kecepatan…</span>
+            </div>
+            <div v-if="playback.active" class="playing-info">
+              <div>
+                <b>{{cameras.find(c=>String(c.id)===String(playback.camera_id))?.name}}</b>
+                <small>{{dateLabel(playback.active.start_time)}} — {{dateLabel(playback.active.end_time)}}</small>
+              </div>
+              <div class="playing-right">
+                <span class="speed-badge" :class="{ accelerated: playback.scale > 1, slowmo: playback.scale < 1 }">
+                  {{ playback.scale === 1 ? '1x Normal' : `${playback.scale}x ${playback.scale > 1 ? 'Fast' : 'Slow'}` }}
+                </span>
+                <a :href="playback.player_url" target="_blank" title="Buka layar penuh">Buka penuh ⛶</a>
+              </div>
+            </div>
+          </section>
           <section class="panel recording-list"><div class="panel-title"><div><p class="eyebrow">HASIL PENCARIAN</p><h2>{{playback.recordings.length}} segmen</h2></div></div><div v-if="!playback.recordings.length" class="recording-empty">Atur kamera dan rentang waktu, lalu tekan <b>Cari rekaman</b>.</div><button v-for="item in playback.recordings" :key="item.id" class="recording-item" :class="{active:playback.active?.id===item.id}" @click="playRecording(item)"><span class="record-icon">▶</span><span><b>{{dateLabel(item.start_time)}}</b><small>s.d. {{dateLabel(item.end_time)}} · {{durationLabel(item)}}</small></span><em>{{item.codec}}</em></button></section>
         </div>
       </template>
