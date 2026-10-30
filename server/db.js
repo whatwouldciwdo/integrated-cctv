@@ -101,6 +101,10 @@ if (!admin) {
   await query('INSERT INTO users (username, full_name, password_hash, role_id) VALUES ($1, $2, $3, $4)',
     [config.adminUsername, 'System Administrator', hashPassword(config.adminPassword), role.id])
   console.log(`[seed] Admin dibuat: ${config.adminUsername}. Segera ubah password default.`)
+} else if (process.env.RESET_ADMIN_PASSWORD === 'true') {
+  await query('UPDATE users SET password_hash = $1, active = TRUE WHERE id = $2',
+    [hashPassword(config.adminPassword), admin.id])
+  console.log(`[seed] Password admin di-reset dari environment: ${config.adminUsername}`)
 }
 }
 

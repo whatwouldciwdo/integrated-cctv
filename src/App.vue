@@ -170,15 +170,39 @@ async function request(url, options = {}) {
 function flash(message, bad = false) { (bad ? error : notice).value = message; setTimeout(() => (bad ? error : notice).value = '', 3500) }
 
 // ─── Bootstrap / Auth ─────────────────────────────────────────────────────────
+const loginLoading = ref(false)
+
 async function bootstrap() {
   loading.value = true
-  try { me.value = await request('/api/me'); await loadCameras(); if (isAdmin.value) await loadCatalog() }
-  catch { me.value = null }
-  finally { loading.value = false }
+  try {
+    me.value = await request('/api/me')
+  } catch {
+    me.value = null
+    return
+  } finally {
+    loading.value = false
+  }
+
+  try {
+    await loadCameras()
+    if (isAdmin.value) await loadCatalog()
+  } catch (e) {
+    flash(`Gagal memuat katalog: ${e.message}`, true)
+  }
 }
+
 async function login() {
-  try { await request('/api/login', { method: 'POST', body: JSON.stringify(credentials) }); credentials.password = ''; await bootstrap() }
-  catch (e) { flash(e.message, true) }
+  if (loginLoading.value) return
+  loginLoading.value = true
+  try {
+    await request('/api/login', { method: 'POST', body: JSON.stringify(credentials) })
+    credentials.password = ''
+    await bootstrap()
+  } catch (e) {
+    flash(e.message || 'Login gagal', true)
+  } finally {
+    loginLoading.value = false
+  }
 }
 async function logout() { await request('/api/logout', { method: 'POST' }); me.value = null; cameras.value = [] }
 async function loadCameras() { cameras.value = await request('/api/cameras'); offset.value = 0 }
@@ -557,10 +581,29 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <!-- Global notification toasts -->
+  <div v-if="notice" class="toast success">{{ notice }}</div>
+  <div v-if="error" class="toast danger">{{ error }}</div>
+
   <div v-if="loading" class="center"><div class="spinner"></div><p>Menyiapkan pusat kendali…</p></div>
   <main v-else-if="!me" class="login-shell">
     <section class="login-brand"><div class="logo large">SC</div><p class="eyebrow">INTEGRATED SURVEILLANCE</p><h1>Satu pandangan.<br><span>Kontrol menyeluruh.</span></h1><p>Kelola akses kamera lintas brand dan bidang dari satu pusat kendali internal.</p><div class="feature-row"><span>● LAN ONLY</span><span>● ROLE BASED</span><span>● LOW LATENCY</span></div></section>
-    <form class="login-card" @submit.prevent="login"><p class="eyebrow">AKSES TERBATAS</p><h2>Masuk ke dashboard</h2><p>Gunakan akun bidang yang telah diberikan administrator.</p><label>Username<input v-model="credentials.username" autocomplete="username" required></label><label>Password<input v-model="credentials.password" type="password" autocomplete="current-password" required autofocus></label><button class="primary">Masuk <span>→</span></button><small>Default awal: admin / password dari environment server</small></form>
+    <form class="login-card" @submit.prevent="login">
+      <p class="eyebrow">AKSES TERBATAS</p>
+      <h2>Masuk ke dashboard</h2>
+      <p>Gunakan akun bidang yang telah diberikan administrator.</p>
+
+      <div v-if="error" class="login-alert danger">⚠️ {{ error }}</div>
+      <div v-if="notice" class="login-alert success">✓ {{ notice }}</div>
+
+      <label>Username<input v-model="credentials.username" autocomplete="username" required :disabled="loginLoading"></label>
+      <label>Password<input v-model="credentials.password" type="password" autocomplete="current-password" required autofocus :disabled="loginLoading"></label>
+      <button class="primary" :disabled="loginLoading">
+        <span>{{ loginLoading ? 'Memverifikasi…' : 'Masuk' }}</span>
+        <span>→</span>
+      </button>
+      <small>Default awal: admin / password dari environment server</small>
+    </form>
   </main>
   <div v-else class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed, 'fullscreen-mode': isFullscreen }">
     <aside :class="{ collapsed: sidebarCollapsed }">
@@ -591,7 +634,6 @@ onUnmounted(() => {
     <!-- ── MAIN WORKSPACE ─────────────────────────────────────────────────── -->
     <section class="workspace" :class="[`page-${page}`, { 'in-fullscreen': isFullscreen }]">
       <header><div><p class="eyebrow">PUSAT KENDALI INTERNAL</p><h1>{{ page==='dashboard' ? 'Live Monitor' : page==='playback' ? 'Playback Rekaman' : 'Management' }}</h1></div><div class="user"><div class="avatar">{{ me.full_name.slice(0,2).toUpperCase() }}</div><div><b>{{ me.full_name }}</b><small>{{ me.role }}</small></div><button title="Keluar" @click="logout">↪</button></div></header>
-      <div v-if="notice" class="toast success">{{ notice }}</div><div v-if="error" class="toast danger">{{ error }}</div>
 
       <!-- ── LIVE MONITOR ──────────────────────────────────────────────────── -->
       <template v-if="page==='dashboard'">
